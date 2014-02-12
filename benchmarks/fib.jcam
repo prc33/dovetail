@@ -1,0 +1,31 @@
+definition closed {
+  channel @fib(i32, (i32)) functional
+  channel %a(i32)          cell
+  channel %b(i32)          cell
+  channel %temp((i32))     mem
+
+  transition @fib(i32 %x, (i32) %k) {
+    %base = cmp ult i32 %x, 2
+    br %base, label %base_case, label %recurse
+  
+  base_case:
+    emit %k(i32 %x)
+    finish
+
+  recurse:
+    %x1 = add i32 %x, -1
+    construct @fib(i32 %x1, (i32) %a)
+
+    %x2 = add i32 %x, -2
+    construct @fib(i32 %x2, (i32) %b)
+
+    emit %temp((i32) %k)
+    finish
+  }
+
+  transition %a(i32 %x) %b(i32 %y) %temp((i32) %k) {
+    %result = add i32 %x, %y
+    emit %k(i32 %result)
+    finish
+  }
+}
