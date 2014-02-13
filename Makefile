@@ -17,6 +17,9 @@ RUNTIME_LLVM = $(addprefix runtime/,$(filter %.ll,$(RUNTIME)))
 RUNTIME_C = $(filter %.c,$(RUNTIME))
 RUNTIME_CO = $(addprefix $(BUILD)/runtime/,$(RUNTIME_C:.c=.ll))
 
+BM_EXEC = $(addprefix $(BIN)/,$(BENCHMARKS))
+BM_BASE = $(addsuffix _base,$(BM_EXEC))
+
 $(BIN):
 	mkdir $(BIN)
 
@@ -25,7 +28,7 @@ $(BUILD):
 	mkdir $(BUILD)/runtime
 	mkdir $(BUILD)/benchmarks
 
-all: $(addprefix $(BIN)/,$(BENCHMARKS))
+all: $(BM_EXEC) $(BM_BASE)
 
 runtime: $(BUILD)/runtime/runtime.bc
 
@@ -58,3 +61,5 @@ $(BUILD)/%.s: $(BUILD)/%.opt.ll
 $(BIN)/%: $(BUILD)/benchmarks/%.s | $(BIN)
 	$(ASM) $< $(LIBS) -o $@
 
+$(BIN)/%_base: benchmarks/%.c | $(BIN)
+	gcc -O3 $< -o $@
