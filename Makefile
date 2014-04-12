@@ -28,7 +28,11 @@ $(BUILD):
 	mkdir $(BUILD)/runtime
 	mkdir $(BUILD)/benchmarks
 
-all: $(BM_EXEC) $(BM_BASE)
+all: benchmarks runtime compiler
+
+benchmarks: $(BM_EXEC) $(BM_BASE)
+
+compiler: $(JCAMC)
 
 runtime: $(BUILD)/runtime/runtime.bc
 
@@ -36,7 +40,7 @@ clean:
 	rm -Rf $(BUILD)
 	rm -Rf $(BIN)
 
-$(JCAMC): | $(BUILD) $(BIN)
+$(JCAMC): compiler/*.ml | $(BUILD) $(BIN)
 	ocamlbuild -I compiler -use-ocamlfind dovetail.byte -package llvm -build-dir $(BUILD)
 	ln -s -f ../$(BUILD)/compiler/dovetail.byte $(JCAMC)
 
