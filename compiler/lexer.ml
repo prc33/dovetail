@@ -17,7 +17,7 @@ let rec lex = parser
     let buffer = Buffer.create 1 in
     lex_id buffer stream
   
-  (* Global identifiers: @[a-zA-Z0-9_]* *)
+  (* Global identifiers: @[a-zA-Z0-9_.]* *)
   | [< ' ('@'); stream >] ->
     let buffer = Buffer.create 1 in
     lex_gid buffer stream
@@ -83,7 +83,7 @@ and lex_id buffer = parser
   | [< stream=lex >] -> [< 'Token.Id (Buffer.contents buffer); stream >]
 
 and lex_gid buffer = parser
-  | [< ' ('A'..'Z' | 'a'..'z' | '0'..'9' | '_' as c); stream >] ->
+  | [< ' ('A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '.' as c); stream >] ->
     Buffer.add_char buffer c;
     lex_gid buffer stream
   | [< stream=lex >] -> [< 'Token.GId (Buffer.contents buffer); stream >]
