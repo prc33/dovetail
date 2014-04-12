@@ -15,13 +15,29 @@ let rec parse = parser
        t=parse_type ?? "expected type";
        p=parse >] ->
     { p with named_types = (s, t) :: p.named_types }
-  (*(* Constant definitions *)
+  (* Constant and 'extern' definitions *)
   | [< 'Token.GId s;
        'Token.Symbol '=' ?? "expected '='";
-       'Token.Kwd "constant" ?? "expected 'constant' keyword"
-       e=parse_expr;
-       p=parse >] ->
-    {p with constants = (s, e) :: p.constants}*)
+       stream >] ->
+    begin parser
+      (*| [< 'Token.Kwd "constant";
+           e=parse_expr;
+           p=parse >] ->
+        {p with constants = (s, e) :: p.constants}*)
+      | [< 'Token.Kwd "extern";
+           'Token.Symbol '(' ?? "expected '('";
+           ts=parse_typelist;
+           'Token.Symbol ')' ?? "expected ')'";
+           'Token.Symbol '-' ?? "expected '->'";
+           'Token.Symbol '>' ?? "expected '->'";
+           stream >] ->
+        let (ktype,p) = begin parser
+          | [< 'Token.Kwd "void";  p=parse >] -> (Some (Type.Channel [ ]), p)
+          | [< 'Token.Kwd "async"; p=parse >] -> (None                   , p)
+          | [< t=parse_type;       p=parse >] -> (Some (Type.Channel [t]), p)
+        end stream in {p with externs = (s, ts, ktype) :: p.externs}
+      | [< >] -> raise (Stream.Error "global definitions are either 'constant' or 'extern'")
+    end stream
   (* Definitions *)
   | [< 'Token.Kwd "definition";
        attrs=parse_def_attrs;
@@ -31,7 +47,7 @@ let rec parse = parser
        p=parse >] ->
     { p with definitions={ def with dattrs=attrs } :: p.definitions }
   (* Empty Program *)
-  | [< >] -> { named_types=[]; constants=[]; definitions=[] }
+  | [< >] -> { named_types=[]; externs=[]; definitions=[] }
   
 and parse_type = parser
   (* Named Type *)
@@ -126,9 +142,11 @@ and parse_block = parser
        'Token.Symbol '=' ?? "expected '='";
        stream >] ->
     begin parser
-      | [< 'Token.Kwd "phi" >] -> raise (Stream.Error "Phi not supported")
-      | [< e=parse_expr; block=parse_block >] -> 
-        { block with instrs=(Instruction.Assign (v, e)) :: block.instrs }
+      | [< 'Token.Kwd "phi";
+           t=parse_type;
+           incoming=parse_incoming;
+           block=parse_block >] ->               { block with phis=(v,t,incoming) :: block.phis }
+      | [< e=parse_expr; block=parse_block >] -> { block with instrs=(Instruction.Assign (v, e)) :: block.instrs }
       | [< >] -> raise (Stream.Error "expected operation")
     end stream
   (* Construct *)
@@ -209,7 +227,20 @@ and parse_value = parser
 (*  | [< 'Token.Kwd "null" >] -> Value.Null
     | Struct  of Type.t * (Value.t list)
     | Array   of Type.t * (Value.t list)*)
-    
+
+and parse_incoming = parser
+  | [< 'Token.Symbol '[';
+       v=parse_value ?? "expected value";
+       'Token.Symbol ',' ?? "expected ','";
+       'Token.Id l ?? "expected label";
+       'Token.Symbol ']' ?? "expected ']'";
+       stream >] ->
+    begin parser
+      | [< 'Token.Symbol ','; incoming=parse_incoming >] -> (v,l)::incoming
+      | [< >] -> [(v,l)]
+    end stream
+  | [< >] -> []
+
 and parse_compare = parser
   | [< 'Token.Kwd "eq" >] -> Cmp.Eq
   | [< 'Token.Kwd "ne" >] -> Cmp.Ne

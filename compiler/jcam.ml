@@ -87,7 +87,7 @@ module Instruction = struct
     | Emit      of Value.t * ((Type.t * Value.t) list)
 end
 
-type phi = string * (label * Value.t) list
+type phi = string * Type.t * (Value.t * label) list
 
 type block = {
   label       : label option;
@@ -122,6 +122,6 @@ type definition = {
 (* Top-Level Program                                                          *)
 type program = {
   named_types : (string * Type.t) list;
-  constants   : (string * Value.t) list;
+  externs     : (string * Type.t list * Type.t option) list;
   definitions : definition list;
 }
