@@ -123,7 +123,7 @@ let fast_impl impl tf =
 
 let fast_queue = fast_impl "fast_queue" (function t -> Llvm.struct_type context [| ptr_type; ptr_type; ptr_type |])
 let fast_cell  = fast_impl "fast_cell" (function t -> Llvm.struct_type context [| ptr_type; t |])
-let fast_mem   = fast_cell (*TODO: fast_impl "fast_mem" (function t -> Llvm.struct_type context [| t |]) *)
+let fast_mem   = fast_impl "fast_mem" (function t -> Llvm.struct_type context [| t |])
 
 let fast_channel attrs = 
   if (List.mem Jcam.CAttribute.Functional attrs) then

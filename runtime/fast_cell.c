@@ -70,12 +70,11 @@ __attribute__((always_inline)) void fast_cell_enqueue(cell_t *cell, cell_t *msg)
 }
 
 /*
- * If the sell is full, this becomes the identity function. Otherwise it
+ * If the cell is full, this becomes the identity function. Otherwise it
  * returns NULL.
  */
 __attribute__((always_inline)) cell_t *fast_cell_find(cell_t *cell) {
   if(cell->status == FULL) {
-    if(cell == NULL) printf("HELLO");
     return cell;
   } else {
     return NULL;
