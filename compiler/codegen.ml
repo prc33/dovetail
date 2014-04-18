@@ -31,9 +31,10 @@ type state = {
   blocks: Llvm.llbasicblock SMap.t;
   undef: Llvm.llvalue SMap.t;
   constructors: Llvm.llvalue SMap.t;
+  constants: Llvm.llvalue SMap.t;
 }
 
-let blank = { types=SMap.empty; values=SMap.empty; blocks=SMap.empty; undef=SMap.empty; constructors=SMap.empty }
+let blank = { types=SMap.empty; values=SMap.empty; blocks=SMap.empty; undef=SMap.empty; constructors=SMap.empty; constants=SMap.empty }
 
 let rec convert_type types t = match t with
   | Type.Alias   s  -> SMap.find s types
@@ -89,26 +90,29 @@ let init_state f = fold (fun b state -> (match b.label with
     | None   ->   state
     | Some l -> { state with blocks=SMap.add l (Llvm.append_block context l f) state.blocks }
     ) |>
+
     (* Placeholder values for any Phi-nodes *)
-    (fold (fun (v,t,_) state ->
+    fold (fun (v,t,_) state ->
       let placeholder = Llvm.declare_global (convert_type state.types t) ("fref." ^ v) llmod in
       { state with values=SMap.add v placeholder state.values; undef=SMap.add v placeholder state.undef }
-    ) b.phis) |>
+    ) b.phis |>
+
     (* Placeholder values for all assignments *)
-    (fold (fun i state -> (match i with
+    fold (fun i state -> (match i with
       | Instruction.Assign(v,e) ->
           let placeholder = Llvm.declare_global (convert_type state.types (Typing.return_type e)) ("fref." ^ v) llmod in
           { state with values=SMap.add v placeholder state.values; undef=SMap.add v placeholder state.undef }
       | _ -> state
       )
-    ) b.instrs)
+    ) b.instrs
   )
 
 let generate_block f instance block state =
   let value t v s = match v with
-    | Value.Var(v)     -> SMap.find v s.values
-    | Value.Integer(x) -> Llvm.const_int t x
-    | Value.Float(x)   -> Llvm.const_float t x
+    | Value.Var(v)      -> SMap.find v s.values
+    | Value.Integer(x)  -> Llvm.const_int t x
+    | Value.Float(x)    -> Llvm.const_float t x
+    | Value.Constant(v) -> SMap.find v s.constants
 (*    | Value.Null
     | Value.Struct  of Type.t * (Value.t list)
     | Value.Array   of Type.t * (Value.t list)*)
@@ -128,14 +132,14 @@ let generate_block f instance block state =
     | Expr.Sub(t,a,b) -> let t = (convert_type s.types t) in Llvm.build_sub (value t a s) (value t b s) v bb
     | Expr.Compare(o,t,a,b) ->
       let llt = (convert_type s.types t) in (match t with
-        | Float(_) -> Llvm.build_fcmp (match o with
+        | Type.Float(_) -> Llvm.build_fcmp (match o with
           | Eq -> Llvm.Fcmp.Oeq | Ne -> Llvm.Fcmp.One
           | UGt -> Llvm.Fcmp.Ogt | UGe -> Llvm.Fcmp.Oge | ULt -> Llvm.Fcmp.Olt | ULe -> Llvm.Fcmp.Ole  (* FIXME: correct float comparisons? signed/unsigned doesn't make sense *)
           | SGt -> Llvm.Fcmp.Ogt | SGe -> Llvm.Fcmp.Oge | SLt -> Llvm.Fcmp.Olt | SLe -> Llvm.Fcmp.Ole)
-        | Integer(_) -> Llvm.build_icmp (match o with
-          | Eq -> Llvm.Icmp.Eq | Ne -> Llvm.Icmp.Ne
-          | UGt -> Llvm.Icmp.Ugt | UGe -> Llvm.Icmp.Uge | ULt -> Llvm.Icmp.Ult | ULe -> Llvm.Icmp.Ule
-          | SGt -> Llvm.Icmp.Sgt | SGe -> Llvm.Icmp.Sge | SLt -> Llvm.Icmp.Slt | SLe -> Llvm.Icmp.Sle)
+        | Type.Integer(_) -> Llvm.build_icmp (match o with
+          | Cmp.Eq -> Llvm.Icmp.Eq | Cmp.Ne -> Llvm.Icmp.Ne
+          | Cmp.UGt -> Llvm.Icmp.Ugt | Cmp.UGe -> Llvm.Icmp.Uge | Cmp.ULt -> Llvm.Icmp.Ult | Cmp.ULe -> Llvm.Icmp.Ule
+          | Cmp.SGt -> Llvm.Icmp.Sgt | Cmp.SGe -> Llvm.Icmp.Sge | Cmp.SLt -> Llvm.Icmp.Slt | Cmp.SLe -> Llvm.Icmp.Sle)
       ) (value llt a s) (value llt b s) v bb
   in
 
@@ -332,11 +336,7 @@ let generate_def state def =
       if SMap.mem c.name fast_channels then begin
         let (_, this_impl) = (SMap.find c.name fast_channels) in
 
-        (* Create new block for clarity and branch to it *)
-        let body = Llvm.append_block context "body" f in
-        Llvm.build_br body bb |> ignore;
-
-        let bb = Llvm.builder_at_end context body in
+        (* TODO: this pattern matching can be forgotten for lower_bound=upper_bound, head channels (as the enqueue in those cases does not change anything) *)
 
         (* Consider every transition matching on c. Builder is passed through in fold manner *)
         let bb = bb |> fold (fun (transition,func) bb ->
@@ -360,7 +360,6 @@ let generate_def state def =
           (* Deal with success. *)
           let data = List.map (fun (name,msg,impl) ->
             if name = c.name then (
-              (*impl.Runtime.fast_consume new_msg "" bb |> ignore;*)
               value
             ) else (
               impl.Runtime.fast_consume msg "" bb |> ignore;
@@ -377,7 +376,7 @@ let generate_def state def =
         ) (List.filter (fun (t,b) -> List.mem c.name (List.map fst t.pattern)) compiled_transitions) in
 
         (* After all transitions fail, actually enqueue message. *)
-        this_impl.fast_enqueue (SMap.find c.name channels) value ("msg." ^ c.name) bb |> ignore;
+        this_impl.Runtime.fast_enqueue (SMap.find c.name channels) value ("msg." ^ c.name) bb |> ignore;
         Llvm.build_ret_void bb |> ignore
       (* Channels where pattern matching is not required *)
       end else begin
@@ -444,9 +443,7 @@ let generate_def state def =
       let retry_false = Llvm.const_int (Llvm.i8_type context) 0 in
 
       (* Enqueuing of new message *)
-      let new_msg = this_impl.slow_enqueue (SMap.find c.name channels) value ("msg." ^ c.name) bb in
-
-      (* TODO: the remainder is pattern matching and can perhaps be forgotten for lower_bound=upper_bound channels (as the enqueue in those cases is presumably not going to change anything?) *)
+      let new_msg = this_impl.Runtime.slow_enqueue (SMap.find c.name channels) value ("msg." ^ c.name) bb in
 
       (* Allocate retry flag *)
       let retry = Llvm.build_alloca (Llvm.i8_type context) "retry" bb in
@@ -465,7 +462,7 @@ let generate_def state def =
       (* Loop Header Condition: Is new message consumed? *)
       let loop_bb = Llvm.builder_at_end context loop in begin
         Llvm.build_cond_br
-          (this_impl.slow_is_consumed new_msg "consumed" loop_bb)
+          (this_impl.Runtime.slow_is_consumed new_msg "consumed" loop_bb)
           exit
           body
           loop_bb
@@ -589,7 +586,62 @@ let generate_def state def =
       generate_slow_emit f c inst channels (Llvm.param f 2) bb
   ) def.channels
 
+let generate_externs (name, ts, kt) state =
+  match kt with
+  (* Return with Value Case *)
+  | Type.Return(result_type) -> 
+      (* External Function Declaration *)
+      let func_type = Llvm.function_type (convert_type state.types result_type) (Array.of_list (List.map (convert_type state.types) ts)) in
+      let func      = Llvm.declare_function name func_type llmod in
+      (* Emit Function *)
+      let chan_type = make_struct state.types (ts @ [Type.Channel([result_type])]) in
+      let emit_type = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; chan_type |] in
+      let emit      = Function.fast (Llvm.define_function ("emit.extern." ^ name) emit_type llmod) in
+      let bb        = Llvm.builder_at_end context (Llvm.entry_block emit) in
+      (* Extract function parameters and do call *)
+      let msg_in    = Llvm.param emit 2 in
+      let params    = Array.init (List.length ts) (fun i -> Llvm.build_extractvalue msg_in i "" bb) in
+      let result    = Llvm.build_call func params "result" bb in
+      (* Emit result to continuation *)
+      let channel   = Llvm.build_extractvalue msg_in (List.length ts) "k" bb in
+      let k_func    = Llvm.build_extractvalue channel 0 "k_func" bb in
+      let k_inst    = Llvm.build_extractvalue channel 1 "k_inst" bb in
+      let msg_out   = Llvm.build_insertvalue (Llvm.undef (make_struct state.types [ result_type ])) result 0 "msg" bb in
+      let call      = Llvm.build_call k_func [| (Llvm.param emit 0); k_inst; msg_out |] "" bb in
+      Llvm.set_instruction_call_conv Function.fastcc call;
+      Llvm.set_tail_call true call;
+      Llvm.build_ret_void bb |> ignore;
+      { state with constants=SMap.add name (Llvm.const_struct context [| emit; Llvm.const_null Runtime.instance_t |]) state.constants }
+  (* Return without Value Case *)
+  | Type.Void ->
+      (* External Function Declaration *)
+      let func_type = Llvm.function_type void_type (Array.of_list (List.map (convert_type state.types) ts)) in
+      let func      = Llvm.declare_function name func_type llmod in
+      (* Emit Function *)
+      let chan_type = make_struct state.types (ts @ [Type.Channel([])]) in
+      let emit_type = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; chan_type |] in
+      let emit      = Function.fast (Llvm.define_function ("emit.extern." ^ name) emit_type llmod) in
+      let bb        = Llvm.builder_at_end context (Llvm.entry_block emit) in
+      (* Extract function parameters and do call *)
+      let msg_in    = Llvm.param emit 2 in
+      let params    = Array.init (List.length ts) (fun i -> Llvm.build_extractvalue msg_in i "" bb) in
+      let result    = Llvm.build_call func params "result" bb in
+      (* Emit result to continuation *)
+      let channel   = Llvm.build_extractvalue msg_in (List.length ts) "k" bb in
+      let k_func    = Llvm.build_extractvalue channel 0 "k_func" bb in
+      let k_inst    = Llvm.build_extractvalue channel 1 "k_inst" bb in
+      let msg_out   = Llvm.const_struct context [| |] in
+      let call      = Llvm.build_call k_func [| (Llvm.param emit 0); k_inst; msg_out |] "" bb in
+      Llvm.set_instruction_call_conv Function.fastcc call;
+      Llvm.set_tail_call true call;
+      Llvm.build_ret_void bb |> ignore;
+      { state with constants=SMap.add name (Llvm.const_struct context [| emit; Llvm.const_null Runtime.instance_t |]) state.constants }
+  (* TODO: Async case *)
+  | _ -> state (* enqueue a match that calls a helper that calls the function (helper needed to avoid fastcc) *)
+
 let generate_module p =
   let top_types = SMap.empty |> fold populate_type p.named_types |> fold generate_type p.named_types in
-  List.iter (generate_def { blank with types=top_types }) p.definitions;
+  let state = { blank with types=top_types} |> fold generate_externs p.externs in
+  List.iter (generate_def state) p.definitions;
+  (* Llvm.dump_module llmod; (* Useful for debugging *) *)
   llmod

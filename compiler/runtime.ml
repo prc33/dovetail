@@ -85,16 +85,12 @@ let slow_impl impl tf =
 
 let slow_queue = slow_impl "slow_queue" (function t -> Llvm.struct_type context [| ptr_type; ptr_type |])
 let slow_cell  = slow_impl "slow_cell" (function t -> Llvm.struct_type context [| ptr_type |])
-let slow_mem   = slow_cell (* TODO: unclear whether mem optimisation is quite possible in slow mode: slow_impl "slow_mem" (function t -> Llvm.struct_type context [| t |]) *)
 
 let slow_channel attrs = 
   if (List.mem Jcam.CAttribute.Functional attrs) then
     None
   else if (List.mem (Jcam.CAttribute.UpperBound(1)) attrs) then begin
-    if (List.mem (Jcam.CAttribute.LowerBound(1)) attrs) then
-      Some slow_mem
-    else
-      Some slow_cell
+    Some slow_cell
   end else
     Some slow_queue
 
@@ -133,7 +129,7 @@ let fast_channel attrs =
   if (List.mem Jcam.CAttribute.Functional attrs) then
     None
   else if (List.mem (Jcam.CAttribute.UpperBound(1)) attrs) then begin
-    if (List.mem (Jcam.CAttribute.LowerBound(1)) attrs) then
+    if (List.mem (Jcam.CAttribute.LowerBound(1)) attrs) && (List.mem Jcam.CAttribute.Head attrs) then
       Some fast_mem
     else
       Some fast_cell

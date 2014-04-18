@@ -33,6 +33,7 @@ end
 module CAttribute = struct
   type t =
     | Functional
+    | Head
     | LowerBound of int
     | UpperBound of int
 end
@@ -46,6 +47,11 @@ module Type = struct
     | Integer  of int                      (* with specified bits *)
     | Struct   of t list
     | Channel  of t list
+
+  type k =
+    | Void
+    | Async
+    | Return of t
 end
 
 (** Comparisons                                                               *)
@@ -63,12 +69,13 @@ module rec Expr : sig
 end = Expr
 and Value : sig
   type t =
-    | Var     of string
-    | Integer of int
-    | Float   of float
+    | Var      of string
+    | Integer  of int
+    | Float    of float
     | Null
-    | Struct  of Value.t list
-    | Array   of Value.t list
+    | Struct   of Value.t list
+    | Array    of Value.t list
+    | Constant of string
 end = Value
 
 type label = string
@@ -122,6 +129,6 @@ type definition = {
 (* Top-Level Program                                                          *)
 type program = {
   named_types : (string * Type.t) list;
-  externs     : (string * Type.t list * Type.t option) list;
+  externs     : (string * Type.t list * Type.k) list;
   definitions : definition list;
 }

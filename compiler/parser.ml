@@ -32,9 +32,9 @@ let rec parse = parser
            'Token.Symbol '>' ?? "expected '->'";
            stream >] ->
         let (ktype,p) = begin parser
-          | [< 'Token.Kwd "void";  p=parse >] -> (Some (Type.Channel [ ]), p)
-          | [< 'Token.Kwd "async"; p=parse >] -> (None                   , p)
-          | [< t=parse_type;       p=parse >] -> (Some (Type.Channel [t]), p)
+          | [< 'Token.Kwd "void";  p=parse >] -> (Type.Void, p)
+          | [< 'Token.Kwd "async"; p=parse >] -> (Type.Async, p)
+          | [< t=parse_type;       p=parse >] -> (Type.Return(t), p)
         end stream in {p with externs = (s, ts, ktype) :: p.externs}
       | [< >] -> raise (Stream.Error "global definitions are either 'constant' or 'extern'")
     end stream
@@ -224,6 +224,7 @@ and parse_value = parser
   | [< 'Token.Integer i >] -> Value.Integer i
   | [< 'Token.Symbol '-'; 'Token.Integer i >] -> Value.Integer (-i)
   | [< 'Token.Float f >] -> Value.Float f
+  | [< 'Token.GId s >] -> Value.Constant s
 (*  | [< 'Token.Kwd "null" >] -> Value.Null
     | Struct  of Type.t * (Value.t list)
     | Array   of Type.t * (Value.t list)*)
@@ -274,7 +275,7 @@ and parse_chan_attrs = parser
   | [< 'Token.Kwd "cell"; attrs=parse_chan_attrs >] ->
                  (CAttribute.UpperBound 1) :: attrs
   | [< 'Token.Kwd "mem"; attrs=parse_chan_attrs >] ->
-                 (CAttribute.LowerBound 1) :: (CAttribute.UpperBound 1) :: attrs
+                 (CAttribute.LowerBound 1) :: (CAttribute.UpperBound 1) :: (CAttribute.Head) :: attrs
   | [< >] -> []
   
 and parse_transition_attrs = parser

@@ -1,8 +1,30 @@
+@print.int = extern (i32) -> i32
+
 definition closed {
-  channel @fib(i32, (i32)) functional
-  channel %a(i32)          cell
-  channel %b(i32)          cell
-  channel %temp((i32))     mem
+  channel @fib(i32, (i32))  functional
+  channel %a(i32)           cell
+  channel %b(i32)           cell
+  channel %temp((i32))      mem
+
+  channel @main(i32, (i32)) functional
+  channel %result(i32)      functional
+  channel %done(i32)        cell
+
+  transition @main(i32 %x, (i32) %k) {
+    emit %temp((i32) %k)
+    construct @fib(i32 %x, (i32) %result)
+    finish
+  }
+
+  transition %result(i32 %x) {
+    emit @print.int(i32 %x, (i32) %done)
+    finish
+  }
+
+  transition %done(i32 %dummy) %temp((i32) %k) {
+    emit %k(i32 0)
+    finish
+  }
 
   transition @fib(i32 %x, (i32) %k) {
     %base = cmp ult i32 %x, 2
@@ -13,19 +35,20 @@ definition closed {
     finish
 
   recurse:
+    emit %temp((i32) %k)
+
     %x1 = add i32 %x, -1
     construct @fib(i32 %x1, (i32) %a)
 
     %x2 = add i32 %x, -2
     construct @fib(i32 %x2, (i32) %b)
 
-    emit %temp((i32) %k)
     finish
   }
 
   transition %a(i32 %x) %b(i32 %y) %temp((i32) %k) {
-    %result = add i32 %x, %y
-    emit %k(i32 %result)
+    %sum = add i32 %x, %y
+    emit %k(i32 %sum)
     finish
   }
 }

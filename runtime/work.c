@@ -105,6 +105,8 @@ static worker_t *workers;
 
 static volatile int more = 1;
 
+static volatile int result;
+
 /*
  * Gives the next match location on the queue (without enqueuing). This allows
  * it to be populated in-place without an extra copy operation.
@@ -225,8 +227,9 @@ __attribute__((always_inline)) bool dovetail_go_fast(worker_t *self) {
 /*
  * Should be called at completion of program execution to terminate workers.
  */
-__attribute__((always_inline)) void dovetail_end() {
+__attribute__((always_inline)) void dovetail_end(int x) {
   more = 0;
+  result = x;
 }
 
 /*
@@ -355,5 +358,5 @@ int main(int argc, char* argv[]) {
   fprintf(stderr, "------------------------------------------\n");
 #endif
 
-  return 0;
+  return result;
 }
