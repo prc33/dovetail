@@ -16,10 +16,26 @@ let int_type  = Llvm.i32_type context
 let size_type = Llvm.i64_type context
 let ptr_type  = Llvm.pointer_type (Llvm.i8_type context)
 
+let array_type t = Llvm.struct_type context [| int_type; Llvm.pointer_type t |]
+
 let malloc = 
   let raw = Llvm.declare_function "GC_malloc" (Llvm.function_type ptr_type [| size_type |]) llmod in
 (*  Llvm.add_function_attr raw Llvm.Attribute.Noalias; *)
   function t -> Llvm.const_bitcast raw (Llvm.pointer_type (Llvm.function_type (Llvm.pointer_type t) [| size_type |]))
+
+let arrays_split =
+  let func_type t =
+    let arr_t = array_type t in
+    Llvm.function_type void_type [| Llvm.pointer_type arr_t; arr_t; array_type int_type; size_type |] in
+  let raw = Llvm.declare_function "arrays_split" (func_type (Llvm.i8_type context)) llmod in
+  fun t -> Llvm.const_bitcast raw (Llvm.pointer_type (func_type t))
+
+let arrays_merge =
+  let func_type t =
+    let arr_t = array_type t in
+    Llvm.function_type arr_t [| array_type arr_t; size_type |] in
+  let raw = Llvm.declare_function "arrays_merge" (func_type (Llvm.i8_type context)) llmod in
+  fun t -> Llvm.const_bitcast raw (Llvm.pointer_type (func_type t))
 
 let match_alloc =
   let raw = Llvm.declare_function "match_alloc" (Llvm.function_type match_t [| worker_t |]) llmod in

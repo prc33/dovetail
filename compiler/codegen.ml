@@ -38,13 +38,13 @@ let blank = { types=SMap.empty; values=SMap.empty; blocks=SMap.empty; undef=SMap
 
 let rec convert_type types t = match t with
   | Type.Alias   s  -> SMap.find s types
-  | Type.Array   e  -> Llvm.struct_type context [| Llvm.i32_type context; convert_type types e |]
+  | Type.Array   e  -> Runtime.array_type (convert_type types e)
   | Type.Float   w  -> (match w with
                   | 32 -> Llvm.float_type context
                   | 64 -> Llvm.double_type context
                   | _  -> failwith ("No floating point type of width " ^ (string_of_int w)))
   | Type.Integer w  -> Llvm.integer_type context w
-  | Type.Struct  ts -> make_struct types ts
+  | Type.Struct  ts -> make_struct types ts (* TODO: should these be passed around by reference or value??? *)
   | Type.Channel ts -> Llvm.struct_type context [|
                     Llvm.pointer_type (Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; make_struct types ts |]);
                     Runtime.instance_t
@@ -113,9 +113,7 @@ let generate_block f instance block state =
     | Value.Integer(x)  -> Llvm.const_int t x
     | Value.Float(x)    -> Llvm.const_float t x
     | Value.Constant(v) -> SMap.find v s.constants
-(*    | Value.Null
-    | Value.Struct  of Type.t * (Value.t list)
-    | Value.Array   of Type.t * (Value.t list)*)
+    | Value.Null        -> Llvm.const_null t
   in
 
   (* Position builder at correct block *)
@@ -141,6 +139,38 @@ let generate_block f instance block state =
           | Cmp.UGt -> Llvm.Icmp.Ugt | Cmp.UGe -> Llvm.Icmp.Uge | Cmp.ULt -> Llvm.Icmp.Ult | Cmp.ULe -> Llvm.Icmp.Ule
           | Cmp.SGt -> Llvm.Icmp.Sgt | Cmp.SGe -> Llvm.Icmp.Sge | Cmp.SLt -> Llvm.Icmp.Slt | Cmp.SLe -> Llvm.Icmp.Sle)
       ) (value llt a s) (value llt b s) v bb
+    | Expr.Array(t, l, vs) ->
+      let t      = convert_type s.types t in
+      let length = List.length vs in
+      let data   = if l then Llvm.build_array_alloca t (make_int length) (v ^ ".data") bb
+                        else Llvm.build_call (Runtime.malloc t) [| Llvm.size_of (Llvm.array_type t length) |] (v ^ ".data") bb in
+      let arr    = Llvm.build_insertvalue (Llvm.const_struct context [| make_int length; Llvm.undef (Llvm.pointer_type t) |]) data 1 v bb in
+      List.iteri (fun i e ->
+        Llvm.build_store (value t e s) (Llvm.build_in_bounds_gep data [| make_int i |] (v ^ "." ^ (string_of_int i)) bb) bb |> ignore
+      ) vs;
+      arr
+    | Expr.Length(a) -> Llvm.build_extractvalue (value void_type a s) 0 v bb (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
+    | Expr.Load(Type.Array(t) as arr_t,a,i) ->
+      let data = Llvm.build_extractvalue (value (convert_type s.types arr_t) a s) 1 (v ^ ".data") bb in
+      let ptr  = Llvm.build_gep data [| value (Llvm.i32_type context) i s |] (v ^ ".ptr") bb in
+      Llvm.build_load ptr v bb
+    | Expr.Split(Type.Array(t) as arr_t,l,a,b) ->
+      let t      = convert_type s.types t in
+      let arr_t  = convert_type s.types arr_t in
+      let a      = value arr_t a s in
+      let b      = (value (Runtime.array_type Runtime.int_type) b s) in
+      let length = Llvm.build_extractvalue b 0 "" bb in
+      let data   = if l then Llvm.build_array_alloca arr_t length (v ^ ".data") bb
+                        else begin
+                          let size = Llvm.build_gep (Llvm.const_null (Llvm.pointer_type arr_t)) [| length |] "" bb in
+                          let int_size = Llvm.build_ptrtoint size Runtime.size_type "" bb in
+                          Llvm.build_call (Runtime.malloc arr_t) [| int_size |] (v ^ ".data") bb 
+                        end in
+      let tmparr = Llvm.build_insertvalue (Llvm.undef (Runtime.array_type arr_t)) length 0 "" bb in
+      let arr    = Llvm.build_insertvalue tmparr data 1 v bb in
+      Llvm.build_call (Runtime.arrays_split t) [| data; a; b; (Llvm.size_of t) |] "" bb |> ignore;
+      arr
+    (* TODO: | Merge(Type.Array(t) as arr_t,ss) -> *)
   in
 
   let state = state |>
@@ -164,6 +194,13 @@ let generate_block f instance block state =
         Llvm.replace_all_uses_with old_value new_value;
         Llvm.delete_global old_value;
         { s with values=SMap.add v new_value s.values; undef=SMap.remove v s.undef }
+    (* Array Stores *)
+    | Instruction.Store(Type.Array(t) as arr_t,a,e,i) ->
+      let data = Llvm.build_extractvalue (value (convert_type s.types arr_t) a s) 1 "" bb in (* TODO: names for these temporaries? *)
+      let ptr  = Llvm.build_gep data [| value (Llvm.i32_type context) i s |] "" bb in
+      let e    = value (convert_type s.types t) e s in
+      Llvm.build_store e ptr bb |> ignore;
+      s
     (* Instance Constructions *)
     | Instruction.Construct(c,ps) ->
         let msg  = Llvm.undef (make_struct s.types (List.map (fun (t,v) -> t) ps)) |>
@@ -171,11 +208,10 @@ let generate_block f instance block state =
         let call = Llvm.build_call (SMap.find c s.constructors) [| worker; msg |] "" bb in
         Llvm.set_instruction_call_conv Function.fastcc call;
         Llvm.set_tail_call true call;
-        |> ignore;
         s
     (* Message Emissions *)
     | Instruction.Emit(v,ps) ->
-        let channel = value (void_type) v s in (* TODO: void_type is a hack here since we know the value must be a Var... *)
+        let channel = value (void_type) v s in (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
         let func    = Llvm.build_extractvalue channel 0 "" bb in (* TODO: names for these temporaries? *)
         let inst    = Llvm.build_extractvalue channel 1 "" bb in
         let msg     = Llvm.undef (make_struct s.types (List.map (fun (t,v) -> t) ps)) |>
@@ -643,5 +679,5 @@ let generate_module p =
   let top_types = SMap.empty |> fold populate_type p.named_types |> fold generate_type p.named_types in
   let state = { blank with types=top_types} |> fold generate_externs p.externs in
   List.iter (generate_def state) p.definitions;
-  (* Llvm.dump_module llmod; (* Useful for debugging *) *)
+  Llvm.dump_module llmod; (* Useful for debugging *)
   llmod

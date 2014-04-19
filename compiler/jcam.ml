@@ -65,7 +65,12 @@ module rec Expr : sig
     | Add     of binop
     | Sub     of binop
     | Compare of (Cmp.t * Type.t * Value.t * Value.t)
-    (* TODO: more instructions *)
+    | Array   of (Type.t * bool * Value.t list)
+    | Length  of Value.t
+    | Load    of binop
+    | Split   of Type.t * bool * Value.t * Value.t
+    | Merge   of Type.t * Value.t
+    (* TODO: more instructions: Struct of (Type.t * Value.t) list *)
 end = Expr
 and Value : sig
   type t =
@@ -73,8 +78,6 @@ and Value : sig
     | Integer  of int
     | Float    of float
     | Null
-    | Struct   of Value.t list
-    | Array    of Value.t list
     | Constant of string
 end = Value
 
@@ -90,6 +93,7 @@ end
 module Instruction = struct
   type t =
     | Assign    of string * Expr.t
+    | Store     of Type.t * Value.t * Value.t * Value.t
     | Construct of string * ((Type.t * Value.t) list)
     | Emit      of Value.t * ((Type.t * Value.t) list)
 end

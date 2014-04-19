@@ -1,6 +1,6 @@
 BENCHMARKS = fib
 
-RUNTIME	= work.c atomics.ll trampoline.ll slow_queue.c fast_cell.c slow_cell.c fast_mem.c main.ll
+RUNTIME	= work.c atomics.ll trampoline.ll slow_queue.c fast_cell.c slow_cell.c fast_mem.c main.ll arrays.c
 BIN	= bin
 BUILD	= build
 BOEHM	= ~/boehm

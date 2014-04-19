@@ -149,6 +149,16 @@ and parse_block = parser
       | [< e=parse_expr; block=parse_block >] -> { block with instrs=(Instruction.Assign (v, e)) :: block.instrs }
       | [< >] -> raise (Stream.Error "expected operation")
     end stream
+  (* Store *)
+  | [< 'Token.Kwd "store";
+       t=parse_type ?? "expected type";
+       a=parse_value;
+       'Token.Symbol ',' ?? "expected ','";
+       e=parse_value;
+       'Token.Symbol ',' ?? "expected ','";
+       i=parse_value;
+       block=parse_block >] ->
+    { block with instrs=(Instruction.Store (t, a, e, i)) :: block.instrs }
   (* Construct *)
   | [< 'Token.Kwd "construct";
        'Token.GId chan   ?? "expected constructor identifier";
@@ -218,6 +228,32 @@ and parse_expr = parser
        a=parse_value ?? "expected value";
        'Token.Symbol ',' ?? "expected ','";
        b=parse_value ?? "expected value" >] -> Expr.Compare (o, t, a, b)
+  | [< 'Token.Kwd "array";
+       l=parse_local;
+       'Token.Symbol '[' ?? "expected '['";
+       t=parse_type ?? "expected type";
+       vs=parse_values;
+       'Token.Symbol ']' ?? "expected ']'" >] -> Expr.Array (t, l, vs)
+  | [< 'Token.Kwd "length";
+       v=parse_value ?? "expected value" >] -> Expr.Length (v)
+  | [< 'Token.Kwd "load";
+       t=parse_type ?? "expected type";
+       a=parse_value ?? "expected value";
+       'Token.Symbol ',' ?? "expected ','";
+       b=parse_value ?? "expected value" >] -> Expr.Load (t, a, b)
+  | [< 'Token.Kwd "split";
+       l=parse_local;
+       t=parse_type ?? "expected type";
+       a=parse_value ?? "expected value";
+       'Token.Symbol ',' ?? "expected ','";
+       b=parse_value ?? "expected value" >] -> Expr.Split (t, l, a, b)
+  | [< 'Token.Kwd "merge";
+       t=parse_type ?? "expected type";
+       v=parse_value ?? "expected value" >] -> Expr.Merge (t, v)
+
+and parse_local = parser
+  | [< 'Token.Kwd "local" >] -> true
+  | [< >] -> false
 
 and parse_value = parser
   | [< 'Token.Id s >] -> Value.Var s
@@ -225,9 +261,15 @@ and parse_value = parser
   | [< 'Token.Symbol '-'; 'Token.Integer i >] -> Value.Integer (-i)
   | [< 'Token.Float f >] -> Value.Float f
   | [< 'Token.GId s >] -> Value.Constant s
-(*  | [< 'Token.Kwd "null" >] -> Value.Null
-    | Struct  of Type.t * (Value.t list)
-    | Array   of Type.t * (Value.t list)*)
+  | [< 'Token.Kwd "null" >] -> Value.Null
+
+and parse_values = parser
+  | [< v=parse_value; stream >] ->
+    begin parser
+      | [< 'Token.Symbol ','; vs=parse_values >] -> v::vs
+      | [< >] -> [v]
+    end stream
+  | [< >] -> []
 
 and parse_incoming = parser
   | [< 'Token.Symbol '[';
