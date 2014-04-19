@@ -128,6 +128,14 @@ let generate_block f instance block state =
   let build_expr v s = function
     | Expr.Add(t,a,b) -> let t = (convert_type s.types t) in Llvm.build_add (value t a s) (value t b s) v bb
     | Expr.Sub(t,a,b) -> let t = (convert_type s.types t) in Llvm.build_sub (value t a s) (value t b s) v bb
+    | Expr.Mul(t,a,b) -> let op = match t with
+                                  | Type.Integer(_) -> Llvm.build_mul
+                                  | Type.Float(_) -> Llvm.build_fmul in
+                         let t = (convert_type s.types t) in op (value t a s) (value t b s) v bb
+    | Expr.Div(t,a,b) -> let op = match t with
+                                  | Type.Integer(_) -> Llvm.build_sdiv
+                                  | Type.Float(_) -> Llvm.build_fdiv in
+                         let t = (convert_type s.types t) in op (value t a s) (value t b s) v bb
     | Expr.Compare(o,t,a,b) ->
       let llt = (convert_type s.types t) in (match t with
         | Type.Float(_) -> Llvm.build_fcmp (match o with
@@ -141,12 +149,19 @@ let generate_block f instance block state =
       ) (value llt a s) (value llt b s) v bb
     | Expr.Array(t, l, vs) ->
       let t      = convert_type s.types t in
-      let length = List.length vs in
-      let data   = if l then Llvm.build_array_alloca t (make_int length) (v ^ ".data") bb
-                        else Llvm.build_call (Runtime.malloc t) [| Llvm.size_of (Llvm.array_type t length) |] (v ^ ".data") bb in
-      let arr    = Llvm.build_insertvalue (Llvm.const_struct context [| make_int length; Llvm.undef (Llvm.pointer_type t) |]) data 1 v bb in
+      let len,vs = (match vs with
+                    | Arrays.InitList(vs) -> (make_int (List.length vs), List.map (fun e -> value t e s) vs)
+                    | Arrays.Length(l) -> (value Runtime.int_type l s, [])) in
+      let data   = if l then Llvm.build_array_alloca t len (v ^ ".data") bb
+                        else begin
+                          let size = Llvm.build_gep (Llvm.const_null (Llvm.pointer_type t)) [| len |] "" bb in
+                          let int_size = Llvm.build_ptrtoint size Runtime.size_type "" bb in
+                          Llvm.build_call (Runtime.malloc t) [| int_size |] (v ^ ".data") bb 
+                        end in
+      let tmparr = Llvm.build_insertvalue (Llvm.undef (Runtime.array_type t)) len 0 "" bb in
+      let arr    = Llvm.build_insertvalue tmparr data 1 v bb in
       List.iteri (fun i e ->
-        Llvm.build_store (value t e s) (Llvm.build_in_bounds_gep data [| make_int i |] (v ^ "." ^ (string_of_int i)) bb) bb |> ignore
+        Llvm.build_store e (Llvm.build_in_bounds_gep data [| make_int i |] (v ^ "." ^ (string_of_int i)) bb) bb |> ignore
       ) vs;
       arr
     | Expr.Length(a) -> Llvm.build_extractvalue (value void_type a s) 0 v bb (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
@@ -170,7 +185,11 @@ let generate_block f instance block state =
       let arr    = Llvm.build_insertvalue tmparr data 1 v bb in
       Llvm.build_call (Runtime.arrays_split t) [| data; a; b; (Llvm.size_of t) |] "" bb |> ignore;
       arr
-    (* TODO: | Merge(Type.Array(t) as arr_t,ss) -> *)
+    | Merge(Type.Array(t) as arr_t,x) ->
+      let t      = convert_type s.types t in
+      let arr_t  = convert_type s.types arr_t in
+      let x      = (value (Runtime.array_type arr_t) x s) in
+      Llvm.build_call (Runtime.arrays_merge t) [| x; (Llvm.size_of t) |] v bb
   in
 
   let state = state |>
@@ -623,6 +642,7 @@ let generate_def state def =
   ) def.channels
 
 let generate_externs (name, ts, kt) state =
+  (* TODO: these should probably all be queued up as matches to keep with the parallel ethos *)
   match kt with
   (* Return with Value Case *)
   | Type.Return(result_type) -> 

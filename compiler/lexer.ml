@@ -67,7 +67,8 @@ and lex_type prefix buffer = parser
     lex_word new_buffer stream
   | [< ' (':'); stream=lex >] -> [< 'Token.Label ((Char.escaped prefix) ^ (Buffer.contents buffer)); stream >]
   | [< stream=lex >] ->
-    [< 'Token.SizedType (prefix, int_of_string (Buffer.contents buffer)); stream >]
+    if (Buffer.length buffer) = 0 then [< 'Token.Symbol prefix; stream >]
+                                  else [< 'Token.SizedType (prefix, int_of_string (Buffer.contents buffer)); stream >]
 
 and lex_word buffer = parser
   | [< ' ('A'..'Z' | 'a'..'z' | '0'..'9' | '_' as c); stream >] ->

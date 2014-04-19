@@ -52,10 +52,43 @@ __attribute__((always_inline)) void arrays_split(array_t *segments, array_t arra
  * Merges multiple arrays back into one - provided that they are contiguous.
  */
 __attribute__((always_inline)) array_t arrays_merge(array_t arrays, size_t size) {
+  // TODO: check that segments are actually contiguous and if not do allocation/copying etc.
   array_t  result;
   array_t *segments = (array_t *) arrays.data;
 
-  // TODO: implement merge
+  result.length = 0;
 
-  return arrays;
+  if(arrays.length > 0) {
+    result.data = segments[0].data;
+
+    for(int i = 0; i < arrays.length; i++) {
+      result.length += segments[i].length;
+    }
+  }
+
+  return result;
+}
+
+int print_array(array_t array) {
+  int *data = (int *) array.data;
+  int len = array.length;
+
+  printf("[ ");
+
+  if(len <= 15) {
+    for(int i = 0; i < len; i++) {
+      if(i != 0) {
+        printf(", ");
+      }
+
+      printf("%d", data[i]);
+    }
+  } else {
+    printf("%d, %d, %d, %d, %d ... %d, %d, %d, %d, %d",
+           data[0], data[1], data[2], data[3], data[4],
+           data[len-5], data[len-4], data[len-3], data[len-2], data[len-1]);
+  }
+
+  printf(" ] (len=%d)\n", len);
+  return 0;
 }

@@ -3,6 +3,8 @@ open Jcam
 let return_type = function
   | Expr.Add(t,_,_) -> t
   | Expr.Sub(t,_,_) -> t
+  | Expr.Mul(t,_,_) -> t
+  | Expr.Div(t,_,_) -> t
   | Expr.Compare(_,t,_,_) -> t
   | Expr.Array(t,_,_) -> Type.Array(t)
   | Expr.Length(_) -> Type.Integer(32)

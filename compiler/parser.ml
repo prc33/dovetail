@@ -191,11 +191,11 @@ and parse_block = parser
                                    terminator=Terminator.Goto l }
       (* Conditional *)
       | [< v=parse_value;
-           'Token.Symbol ',';
-           'Token.Kwd "label";
+           'Token.Symbol ',' ?? "expected ','";
+           'Token.Kwd "label" ?? "expected label";
            'Token.Id a;
-           'Token.Symbol ',';
-           'Token.Kwd "label";
+           'Token.Symbol ',' ?? "expected ','";
+           'Token.Kwd "label" ?? "expected label";
            'Token.Id b >] ->     { label=None;
                                    phis=[];
                                    instrs=[];
@@ -222,6 +222,16 @@ and parse_expr = parser
        a=parse_value ?? "expected value";
        'Token.Symbol ',' ?? "expected ','";
        b=parse_value ?? "expected value" >] -> Expr.Sub (t, a, b)
+  | [< 'Token.Kwd "mul";
+       t=parse_type ?? "expected type";
+       a=parse_value ?? "expected value";
+       'Token.Symbol ',' ?? "expected ','";
+       b=parse_value ?? "expected value" >] -> Expr.Mul (t, a, b)
+  | [< 'Token.Kwd "div";
+       t=parse_type ?? "expected type";
+       a=parse_value ?? "expected value";
+       'Token.Symbol ',' ?? "expected ','";
+       b=parse_value ?? "expected value" >] -> Expr.Div (t, a, b)
   | [< 'Token.Kwd "cmp";
        o=parse_compare ?? "expected comparison operation";
        t=parse_type ?? "expected type";
@@ -232,8 +242,14 @@ and parse_expr = parser
        l=parse_local;
        'Token.Symbol '[' ?? "expected '['";
        t=parse_type ?? "expected type";
-       vs=parse_values;
-       'Token.Symbol ']' ?? "expected ']'" >] -> Expr.Array (t, l, vs)
+       stream >] ->
+    begin parser
+      | [< 'Token.Symbol 'x';
+           v=parse_value;
+           'Token.Symbol ']' ?? "expected ']'" >] -> Expr.Array (t, l, Arrays.Length(v))
+      | [< vs=parse_values;
+           'Token.Symbol ']' ?? "expected ']'" >] -> Expr.Array (t, l, Arrays.InitList(vs))
+    end stream
   | [< 'Token.Kwd "length";
        v=parse_value ?? "expected value" >] -> Expr.Length (v)
   | [< 'Token.Kwd "load";

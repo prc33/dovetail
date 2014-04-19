@@ -64,8 +64,10 @@ module rec Expr : sig
   and t = 
     | Add     of binop
     | Sub     of binop
+    | Mul     of binop
+    | Div     of binop
     | Compare of (Cmp.t * Type.t * Value.t * Value.t)
-    | Array   of (Type.t * bool * Value.t list)
+    | Array   of (Type.t * bool * Arrays.init)
     | Length  of Value.t
     | Load    of binop
     | Split   of Type.t * bool * Value.t * Value.t
@@ -80,6 +82,11 @@ and Value : sig
     | Null
     | Constant of string
 end = Value
+and Arrays : sig
+  type init =
+    | Length of Value.t
+    | InitList of (Value.t list)
+end = Arrays
 
 type label = string
 

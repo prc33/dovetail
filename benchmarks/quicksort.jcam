@@ -1,0 +1,124 @@
+@rand = extern () -> i32
+@print_array = extern ([i32]) -> i32
+
+definition closed {
+  channel @main(i32, (i32))    functional
+  channel %quit((i32))         mem
+  channel %init_val(i32)
+  channel %init_arr([i32],i32) cell        ; Cheating: static analysis would struggle to get this beyond cell
+  channel %result([i32])       cell
+
+  transition @main(i32 %x, (i32) %k) {
+    emit %quit((i32)  %k)
+    br label %entry
+
+  entry:
+    %data = array [i32 x %x]
+    emit %init_arr([i32] %data, i32 0)
+    br label %init
+
+  init:
+    %i = phi i32 [0, %entry], [%next_i, %init]
+    emit @rand((i32) %init_val)
+
+    %next_i = add i32 %i, 1
+    %cont = cmp ult i32 %next_i, %x
+    br %cont, label %init, label %done
+
+  done:
+    finish
+  }
+
+  transition %init_val(i32 %x) %init_arr([i32] %arr, i32 %i) {
+    %len = length %arr
+    store [i32] %arr, %x, %i
+    %next_i = add i32 %i, 1
+    %cont = cmp ult i32 %next_i, %len
+    br %cont, label %more, label %start
+
+  more:
+    emit %init_arr([i32] %arr, i32 %next_i)
+    finish
+
+  start:
+    construct @quicksort([i32] %arr, ([i32]) %result)
+    finish
+  }
+
+  transition %result([i32] %arr) %quit((i32) %k) {
+    emit @print_array([i32] %arr, (i32) %k)
+    finish
+  }
+;}
+
+; Quicksort: transcribed from http://rosettacode.org/wiki/Sorting_algorithms/Quicksort#C
+;definition closed {
+  channel @quicksort([i32], ([i32]))   functional
+  channel %temp([i32], ([i32]))        mem
+  channel %merge_left([i32])           cell
+  channel %merge_right([i32])          cell
+  
+  transition @quicksort([i32] %arr, ([i32]) %k) {
+    %len = length %arr
+    %done = cmp ult i32 %len, 2
+    br %done, label %easy, label %entry
+
+  ; Base Case (length = 1)
+  easy:
+    emit %k([i32] %arr)
+    finish
+
+  ; Partition Case (length > 1)
+  entry:
+    %init_right = sub i32 %len, 1
+    %pivot_idx = div i32 %len, 2
+    %pivot = load [i32] %arr, %pivot_idx
+    br label %loop_entry
+  loop_entry:
+    %left  = phi i32 [0,           %entry], [%left_p1, %loop], [%left,     %loop2], [%left_p1,  %loop3]
+    %right = phi i32 [%init_right, %entry], [%right,   %loop], [%right_m1, %loop2], [%right_m1, %loop3]
+    %cont = cmp ule i32 %left, %right
+    br %cont, label %loop, label %recurse
+  loop:
+    %left_data = load [i32] %arr, %left
+    %advance_left = cmp ult i32 %left_data, %pivot
+    %left_p1 = add i32 %left, 1
+    br %advance_left, label %loop_entry, label %loop2
+  loop2:
+    %right_data = load [i32] %arr, %right
+    %advance_right = cmp ult i32 %pivot, %right_data
+    %right_m1 = sub i32 %right, 1
+    br %advance_right, label %loop_entry, label %loop3
+  loop3:
+    store [i32] %arr, %right_data, %left
+    store [i32] %arr, %left_data, %right
+    br label %loop_entry
+
+  ; Actually do recursive quicksort
+  recurse:
+    %left_len = add i32 %right, 1
+    %right_len = sub i32 %len, %left
+    %middle_len = sub i32 %left, %left_len
+
+    %segdes = array local [i32 %left_len, %middle_len, %right_len]
+    %segments = split local [i32] %arr, %segdes
+    %left_arr = load [[i32]] %segments, 0
+    %middle_arr = load [[i32]] %segments, 1
+    %right_arr = load [[i32]] %segments, 2
+    
+    emit %temp([i32] %middle_arr, ([i32]) %k)
+    construct @quicksort([i32] %left_arr, ([i32]) %merge_left)
+    construct @quicksort([i32] %right_arr, ([i32]) %merge_right)
+    finish
+  }
+
+channel %foo(i32) mem
+
+  transition %merge_left([i32] %left_result) %merge_right([i32] %right_result) %temp([i32] %mid, ([i32]) %k) {
+    %segments = array local [[i32] %left_result, %mid, %right_result]
+    %ans = merge [i32] %segments
+    emit %k([i32] %ans)
+    finish
+  }
+}
+

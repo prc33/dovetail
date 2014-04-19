@@ -1,6 +1,6 @@
-BENCHMARKS = fib
+BENCHMARKS = fib quicksort
 
-RUNTIME	= work.c atomics.ll trampoline.ll slow_queue.c fast_cell.c slow_cell.c fast_mem.c main.ll arrays.c
+RUNTIME	= work.c atomics.ll trampoline.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c main.ll arrays.c
 BIN	= bin
 BUILD	= build
 BOEHM	= ~/boehm
@@ -20,6 +20,10 @@ RUNTIME_CO = $(addprefix $(BUILD)/runtime/,$(RUNTIME_C:.c=.ll))
 BM_EXEC = $(addprefix $(BIN)/,$(BENCHMARKS))
 BM_BASE = $(addsuffix _base,$(BM_EXEC))
 
+.SECONDARY:
+
+all: benchmarks runtime compiler
+
 $(BIN):
 	mkdir $(BIN)
 
@@ -27,8 +31,6 @@ $(BUILD):
 	mkdir $(BUILD)
 	mkdir $(BUILD)/runtime
 	mkdir $(BUILD)/benchmarks
-
-all: benchmarks runtime compiler
 
 benchmarks: $(BM_EXEC) $(BM_BASE)
 
@@ -66,4 +68,4 @@ $(BIN)/%: $(BUILD)/benchmarks/%.s | $(BIN)
 	$(ASM) $< $(LIBS) -o $@
 
 $(BIN)/%_base: benchmarks/%.c | $(BIN)
-	gcc -O3 $< -o $@
+	gcc -std=c99 -O3 $< -o $@
