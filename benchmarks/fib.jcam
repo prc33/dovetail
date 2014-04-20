@@ -7,8 +7,7 @@ definition closed {
   channel %temp((i32))      mem
 
   channel @main(i32, (i32)) functional
-  channel %result(i32)      functional
-  channel %done(i32)        cell
+  channel %result(i32)      cell
 
   transition @main(i32 %x, (i32) %k) {
     emit %temp((i32) %k)
@@ -16,13 +15,8 @@ definition closed {
     finish
   }
 
-  transition %result(i32 %x) {
-    emit @print.int(i32 %x, (i32) %done)
-    finish
-  }
-
-  transition %done(i32 %dummy) %temp((i32) %k) {
-    emit %k(i32 0)
+  transition %result(i32 %x) %temp((i32) %k) {
+    emit @print.int(i32 %x, (i32) %k)
     finish
   }
 
