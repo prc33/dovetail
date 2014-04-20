@@ -61,7 +61,10 @@ $(BUILD)/benchmarks/%.linked.bc: $(BUILD)/benchmarks/%.bc $(BUILD)/runtime/runti
 $(BUILD)/%.opt.ll: $(BUILD)/%.linked.bc
 	$(OPT) $< -S -o $@
 
-$(BUILD)/%.s: $(BUILD)/%.opt.ll
+$(BUILD)/%.fixed.ll: $(BUILD)/%.opt.ll
+	./fix-selects.sh $< $@
+
+$(BUILD)/%.s: $(BUILD)/%.fixed.ll
 	$(LLC) $< -o $@	
 	
 $(BIN)/%: $(BUILD)/benchmarks/%.s | $(BIN)
