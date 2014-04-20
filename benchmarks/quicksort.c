@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <malloc.h>
 
-#define LENGTH 3000000
+#define LENGTH 15000000
 
 void quicksort(int *array, int length) {
   if(length < 2) {

@@ -4,28 +4,16 @@
 definition closed {
   channel @main(i32, (i32))    functional
   channel %quit((i32))         mem
-  channel %init_val(i32)
+  channel %init_val(i32)       cell
   channel %init_arr([i32],i32) cell        ; Cheating: static analysis would struggle to get this beyond cell
   channel %result([i32])       cell
 
   transition @main(i32 %x, (i32) %k) {
-    emit %quit((i32)  %k)
-    br label %entry
+    emit %quit((i32) %k)
 
-  entry:
     %data = array [i32 x %x]
     emit %init_arr([i32] %data, i32 0)
-    br label %init
-
-  init:
-    %i = phi i32 [0, %entry], [%next_i, %init]
     emit @rand((i32) %init_val)
-
-    %next_i = add i32 %i, 1
-    %cont = cmp ult i32 %next_i, %x
-    br %cont, label %init, label %done
-
-  done:
     finish
   }
 
@@ -38,6 +26,7 @@ definition closed {
 
   more:
     emit %init_arr([i32] %arr, i32 %next_i)
+    emit @rand((i32) %init_val)
     finish
 
   start:
