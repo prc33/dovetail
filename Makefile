@@ -4,6 +4,7 @@ RUNTIME	= work.c atomics.ll trampoline.ll slow_queue.c slow_cell.c fast_queue.c 
 BIN	= bin
 BUILD	= build
 BOEHM	= ~/boehm
+WOOL	= ~/Desktop/wool-0.1.5alpha
 
 CLANG	= clang -S -I $(BOEHM)/include/ -O0 -emit-llvm
 LINK	= llvm-link-3.2
@@ -12,27 +13,19 @@ LLC	= llc-3.2 -O3
 ASM	= gcc -g
 LIBS	= -lpthread $(BOEHM)/lib/libgc.so
 JCAMC	= $(BIN)/jcamc
+CC	= gcc -std=c99 -O3 -Wall
+WOOLC	= gcc -std=gnu99 -O3 -Wall -DWOOL -I $(WOOL) $(WOOL)/wool.o -lpthread
 
 RUNTIME_LLVM = $(addprefix runtime/,$(filter %.ll,$(RUNTIME)))
 RUNTIME_C = $(filter %.c,$(RUNTIME))
 RUNTIME_CO = $(addprefix $(BUILD)/runtime/,$(RUNTIME_C:.c=.ll))
 
-BM_EXEC = $(addprefix $(BIN)/,$(BENCHMARKS))
-BM_BASE = $(addsuffix _base,$(BM_EXEC))
-
-.SECONDARY:
+BM_ALL  = $(BENCHMARKS) $(addsuffix _base,$(BENCHMARKS)) $(addsuffix _wool,$(BENCHMARKS))
+BM_EXEC = $(addprefix $(BIN)/,$(BM_ALL))
 
 all: benchmarks runtime compiler
 
-$(BIN):
-	mkdir $(BIN)
-
-$(BUILD):
-	mkdir $(BUILD)
-	mkdir $(BUILD)/runtime
-	mkdir $(BUILD)/benchmarks
-
-benchmarks: $(BM_EXEC) $(BM_BASE)
+benchmarks: $(BM_EXEC)
 
 compiler: $(JCAMC)
 
@@ -41,6 +34,14 @@ runtime: $(BUILD)/runtime/runtime.bc
 clean:
 	rm -Rf $(BUILD)
 	rm -Rf $(BIN)
+
+$(BIN):
+	mkdir $(BIN)
+
+$(BUILD):
+	mkdir $(BUILD)
+	mkdir $(BUILD)/runtime
+	mkdir $(BUILD)/benchmarks
 
 $(JCAMC): compiler/*.ml | $(BUILD) $(BIN)
 	ocamlbuild -I compiler -use-ocamlfind dovetail.byte -package llvm -build-dir $(BUILD)
@@ -71,4 +72,7 @@ $(BIN)/%: $(BUILD)/benchmarks/%.s | $(BIN)
 	$(ASM) $< $(LIBS) -o $@
 
 $(BIN)/%_base: benchmarks/%.c | $(BIN)
-	gcc -std=c99 -O3 $< -o $@
+	$(CC) $< -o $@
+
+$(BIN)/%_wool: benchmarks/%.c | $(BIN)
+	$(WOOLC) $< -o $@
