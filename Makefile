@@ -15,12 +15,13 @@ LIBS	= -lpthread $(BOEHM)/lib/libgc.so
 JCAMC	= $(BIN)/jcamc
 CC	= gcc -std=c99 -O3 -Wall
 WOOLC	= gcc -std=gnu99 -O3 -Wall -DWOOL -I $(WOOL) $(WOOL)/wool.o -lpthread
+JAVAC	= javac -d $(BIN)
 
 RUNTIME_LLVM = $(addprefix runtime/,$(filter %.ll,$(RUNTIME)))
 RUNTIME_C = $(filter %.c,$(RUNTIME))
 RUNTIME_CO = $(addprefix $(BUILD)/runtime/,$(RUNTIME_C:.c=.ll))
 
-BM_ALL  = $(BENCHMARKS) $(addsuffix _base,$(BENCHMARKS)) $(addsuffix _wool,$(BENCHMARKS))
+BM_ALL  = $(BENCHMARKS) $(addsuffix _base,$(BENCHMARKS)) $(addsuffix _wool,$(BENCHMARKS)) $(addsuffix .class,$(BENCHMARKS))
 BM_EXEC = $(addprefix $(BIN)/,$(BM_ALL))
 
 all: benchmarks runtime compiler
@@ -76,3 +77,6 @@ $(BIN)/%_base: benchmarks/%.c | $(BIN)
 
 $(BIN)/%_wool: benchmarks/%.c | $(BIN)
 	$(WOOLC) $< -o $@
+
+$(BIN)/%.class: benchmarks/%.java | $(BIN)
+	$(JAVAC) $<
