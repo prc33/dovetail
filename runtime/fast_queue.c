@@ -25,31 +25,41 @@
 
 #include "dovetail-common.h"
 
+typedef struct {
+  void   *data;
+  void   *top;
+  size_t  capacity;
+} queue_t;
 
-__attribute__((always_inline)) void fast_queue_init(void *ptr, size_t size) {
-  // TODO
+#define INITIAL_CAPACITY 100
+
+__attribute__((always_inline)) void fast_queue_init(queue_t *queue, size_t size) {
+  queue->data = GC_malloc(INITIAL_CAPACITY * size);
+  queue->top = queue->data;
+  queue->capacity = INITIAL_CAPACITY;
 }
 
-__attribute__((always_inline)) void *fast_queue_allocate(void *ptr, size_t size) {
-  printf("UNIMPLEMENTED fast_queue IS BEING USED. DISASTER LIKELY!\n");
-  // TODO
-  return ptr;
+__attribute__((always_inline)) void *fast_queue_allocate(queue_t *queue, size_t size) {
+  // TODO: check capacity
+  return queue->top;
 }
 
-__attribute__((always_inline)) void *fast_queue_data(void *ptr, size_t size) {
-  // TODO
-  return ptr;
+__attribute__((always_inline)) void *fast_queue_data(void *msg, size_t size) {
+  return msg;
 }
 
-__attribute__((always_inline)) void fast_queue_enqueue(void *ptr, void *ptr2) {
-  // TODO
+__attribute__((always_inline)) void fast_queue_enqueue(queue_t *queue, void *msg) {
+  queue->top = msg;
 }
 
-__attribute__((always_inline)) void *fast_queue_find(void *ptr) {
-  // TODO
-  return ptr;
+__attribute__((always_inline)) void *fast_queue_find(queue_t *queue) {
+  if(queue->top > queue->data) {
+    return queue->top;
+  } else {
+    return NULL;
+  }
 }
 
-__attribute__((always_inline)) void fast_queue_consume(void *ptr) {
-  // TODO
+__attribute__((always_inline)) void fast_queue_consume(queue_t *queue, void *msg, size_t size) {
+  queue->top = msg - size;
 }

@@ -71,6 +71,6 @@ __attribute__((always_inline)) void *fast_mem_find(void *ptr) {
  * Is only ever called when the location is about to be filled again, so is a
  * no-op (like enqueue).
  */
-__attribute__((always_inline)) void fast_mem_consume(void *ptr) {
+__attribute__((always_inline)) void fast_mem_consume(void *ptr, void *ptr2, size_t size) {
   // Nothing
 }

@@ -84,7 +84,7 @@ __attribute__((always_inline)) cell_t *fast_cell_find(cell_t *cell) {
 /*
  * Marks the cell as empty.
  */
-__attribute__((always_inline)) void fast_cell_consume(cell_t *msg) {
+__attribute__((always_inline)) void fast_cell_consume(cell_t * cell, cell_t *msg, size_t size) {
   msg->status = EMPTY;
 }
 

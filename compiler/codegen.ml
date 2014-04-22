@@ -417,7 +417,7 @@ let generate_def state def =
             if name = c.name then (
               value
             ) else (
-              impl.Runtime.fast_consume msg "" bb |> ignore;
+              impl.Runtime.fast_consume (SMap.find name channels) msg "" bb |> ignore;
               let ptr = impl.Runtime.fast_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
               Llvm.build_load ptr ("data." ^ (string_of_int transition.tid) ^ "." ^ name) bb
             )
@@ -681,7 +681,7 @@ let generate_externs (name, ts, kt) state =
       (* Extract function parameters and do call *)
       let msg_in    = Llvm.param emit 2 in
       let params    = Array.init (List.length ts) (fun i -> Llvm.build_extractvalue msg_in i "" bb) in
-      let result    = Llvm.build_call func params "result" bb in
+      let result    = Llvm.build_call func params "" bb in
       (* Emit result to continuation *)
       let channel   = Llvm.build_extractvalue msg_in (List.length ts) "k" bb in
       let k_func    = Llvm.build_extractvalue channel 0 "k_func" bb in

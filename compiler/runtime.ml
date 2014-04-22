@@ -63,7 +63,7 @@ type fast_channel = {
   fast_data        : Llvm.llvalue -> string -> Llvm.llbuilder -> Llvm.llvalue;  (* msg, int     -> i8*  *)
   fast_enqueue     : Llvm.llvalue -> Llvm.llvalue -> string -> Llvm.llbuilder -> Llvm.llvalue;  (* channel, msg -> void *)
   fast_find        : Llvm.llvalue -> string -> Llvm.llbuilder -> Llvm.llvalue;  (* channel -> msg  *)
-  fast_consume     : Llvm.llvalue -> string -> Llvm.llbuilder -> Llvm.llvalue;  (* msg -> void          *)
+  fast_consume     : Llvm.llvalue -> Llvm.llvalue -> string -> Llvm.llbuilder -> Llvm.llvalue;  (* msg -> void          *)
 }
 
 let slow_impl impl tf =
@@ -119,7 +119,7 @@ let fast_impl impl tf =
   let data        = Llvm.declare_function (impl ^ "_data")        (Llvm.function_type ptr_type  [| msg_t;     size_type |]) llmod in
   let enqueue     = Llvm.declare_function (impl ^ "_enqueue")     (Llvm.function_type void_type [| channel_t; msg_t     |]) llmod in
   let find        = Llvm.declare_function (impl ^ "_find")        (Llvm.function_type msg_t     [| channel_t            |]) llmod in
-  let consume     = Llvm.declare_function (impl ^ "_consume")     (Llvm.function_type void_type [| msg_t                |]) llmod in 
+  let consume     = Llvm.declare_function (impl ^ "_consume")     (Llvm.function_type void_type [| channel_t; msg_t; size_type |]) llmod in 
 
   fun t -> let size = Llvm.size_of t in
            let casted = Llvm.const_bitcast data (Llvm.pointer_type (Llvm.function_type (Llvm.pointer_type t) [| msg_t; size_type |])) in (tf t, {
@@ -134,7 +134,7 @@ let fast_impl impl tf =
          Llvm.build_call enqueue [| channel; msg |] "" bb |> ignore;
          msg);
     fast_find        = (fun channel -> Llvm.build_call find [| channel |]);
-    fast_consume     = (fun msg -> Llvm.build_call consume [| msg |]);
+    fast_consume     = (fun channel msg -> Llvm.build_call consume [| channel; msg; size |]);
   })
 
 let fast_queue = fast_impl "fast_queue" (function t -> Llvm.struct_type context [| ptr_type; ptr_type; size_type |])

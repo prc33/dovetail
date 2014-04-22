@@ -1,0 +1,129 @@
+@print.int = extern (i32) -> i32
+@print_array = extern ([i32]) -> i32
+
+definition closed {
+  channel @nqueens(i32, i32, [i32], (i32))    functional
+  channel %next(i32, i32, [i32], i32, (i32))
+  channel %results(i32)
+  channel %accumulator(i32, i32, (i32))       mem
+
+  transition @nqueens(i32 %n, i32 %done, [i32] %a, (i32) %k) {
+    %finished = cmp eq i32 %n, %done
+    br %finished, label %end, label %recurse
+  
+  end:
+;    emit @print_array([i32] %a, (i32) %bla) ; Uncommenting this displays the actual solution arrays
+    emit %k(i32 1)
+    finish
+
+  recurse:
+    emit %accumulator(i32 %n, i32 0, (i32) %k)
+    br label %loop
+
+  loop:
+    %i = phi i32 [0, %recurse], [%i_p1, %loop2]
+    %cont = cmp ult i32 %i, %n
+    br %cont, label %loop2, label %end2
+
+  loop2:
+    %i_p1 = add i32 %i, 1
+
+    emit %next(i32 %n, i32 %done, [i32] %a, i32 %i, (i32) %results)
+    br label %loop
+    
+  end2:
+    finish
+  }
+channel %bla(i32) mem
+  transition %next(i32 %n, i32 %done, [i32] %a, i32 %position, (i32) %k) {
+    br label %entry
+  entry:
+    %done_p1 = add i32 %done, 1
+
+    %b = array [i32 x %done_p1]
+    br label %out_loop
+
+  out_loop:
+    %i = phi i32 [0, %entry], [%i_p1, %in_loop]
+    %i_p1 = add i32 %i, 1
+    %out_cmp = cmp ult i32 %i, %done_p1
+    br %out_cmp, label %out_loop2, label %recurse
+
+  out_loop2:
+    %val_cmp = cmp ne i32 %i, %done
+    br %val_cmp, label %out_loop3, label %out_loop4
+
+  out_loop3:
+    %a_val = load [i32] %a, %i
+    br label %out_loop4
+
+  out_loop4:
+    %p = phi i32 [%a_val, %out_loop3], [%position, %out_loop2]
+    store [i32] %b, %p, %i
+    br label %in_loop
+
+  in_loop:
+    %j = phi i32 [0, %out_loop4], [%j_p1, %in_loop4]
+    %j_p1 = add i32 %j, 1
+    %in_cmp = cmp ult i32 %j, %i
+    br %in_cmp, label %in_loop2, label %out_loop
+    
+  in_loop2:
+    %q = load [i32] %b, %j
+    %conflict1 = cmp eq i32 %q, %p
+    br %conflict1, label %end, label %in_loop3
+
+  in_loop3:
+    %j_minus_i = sub i32 %j, %i
+    %p_minus = sub i32 %p, %j_minus_i
+    %conflict2 = cmp eq i32 %q, %p_minus
+    br %conflict2, label %end, label %in_loop4
+
+  in_loop4:
+    %p_plus = add i32 %p, %j_minus_i
+    %conflict3 = cmp eq i32 %q, %p_plus
+    br %conflict3, label %end, label %in_loop
+
+  end:
+    emit %k(i32 0)
+    finish
+  
+  recurse:
+    construct @nqueens(i32 %n, i32 %done_p1, [i32] %b, (i32) %k)
+    finish
+  }
+
+  transition %accumulator(i32 %remaining, i32 %sum, (i32) %k) %results(i32 %result) {
+    %new_sum = add i32 %sum, %result
+    %new_remaining = sub i32 %remaining, 1
+
+    %cont = cmp ugt i32 %new_remaining, 0
+    br %cont, label %more, label %end
+
+  more:
+    emit %accumulator(i32 %new_remaining, i32 %new_sum, (i32) %k)
+    finish
+
+  end:
+    emit %k(i32 %new_sum)
+    finish
+  } 
+;}
+
+;definition closed {
+  channel @main(i32, (i32))   functional
+  channel %temp((i32))        mem
+  channel %final(i32)         cell
+
+  transition @main(i32 %n, (i32) %k) {
+    %a = array [i32 x %n]
+    emit %temp((i32) %k)
+    construct @nqueens(i32 %n, i32 0, [i32] %a, (i32) %final)
+    finish
+  }
+  
+  transition %temp((i32) %k) %final(i32 %x) {
+    emit @print.int(i32 %x, (i32) %k)
+    finish
+  }
+}

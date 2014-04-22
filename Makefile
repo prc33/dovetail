@@ -1,4 +1,4 @@
-BENCHMARKS = fib quicksort
+BENCHMARKS = fib quicksort nqueens
 
 RUNTIME	= work.c atomics.ll trampoline.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c main.ll arrays.c
 BIN	= bin
