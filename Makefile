@@ -14,7 +14,7 @@ ASM	= gcc -g
 LIBS	= -lpthread $(BOEHM)/lib/libgc.so
 JCAMC	= $(BIN)/jcamc
 CC	= gcc -std=c99 -O3 -Wall
-WOOLC	= gcc -std=gnu99 -O3 -Wall -DWOOL -I $(WOOL) $(WOOL)/wool.o -lpthread
+WOOLC	= gcc -std=gnu99 -O3 -Wall -DWOOL -I $(WOOL) $(WOOL)/wool.o
 JAVAC	= javac -d $(BIN)
 
 RUNTIME_LLVM = $(addprefix runtime/,$(filter %.ll,$(RUNTIME)))
@@ -73,10 +73,10 @@ $(BIN)/%: $(BUILD)/benchmarks/%.s | $(BIN)
 	$(ASM) $< $(LIBS) -o $@
 
 $(BIN)/%_base: benchmarks/%.c | $(BIN)
-	$(CC) $< -o $@
+	$(CC) $< $(LIBS) -o $@
 
 $(BIN)/%_wool: benchmarks/%.c | $(BIN)
-	$(WOOLC) $< -o $@
+	$(WOOLC) $< $(LIBS) -o $@
 
 $(BIN)/%.class: benchmarks/%.java | $(BIN)
 	$(JAVAC) $<

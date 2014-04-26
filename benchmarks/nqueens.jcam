@@ -6,6 +6,7 @@ definition closed {
   channel %next(i32, i32, [i32], i32, (i32))
   channel %results(i32)
   channel %accumulator(i32, i32, (i32))       mem
+; channel %bla(i32) mem
 
   transition @nqueens(i32 %n, i32 %done, [i32] %a, (i32) %k) {
     %finished = cmp eq i32 %n, %done
@@ -34,7 +35,7 @@ definition closed {
   end2:
     finish
   }
-channel %bla(i32) mem
+
   transition %next(i32 %n, i32 %done, [i32] %a, i32 %position, (i32) %k) {
     br label %entry
   entry:

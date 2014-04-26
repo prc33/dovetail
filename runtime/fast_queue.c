@@ -31,10 +31,10 @@ typedef struct {
   size_t  capacity;
 } queue_t;
 
-#define INITIAL_CAPACITY 100
+#define INITIAL_CAPACITY 32
 
 __attribute__((always_inline)) void fast_queue_init(queue_t *queue, size_t size) {
-  queue->data = GC_malloc(INITIAL_CAPACITY * size);
+  queue->data = queue + 1;
   queue->top = queue->data;
   queue->capacity = INITIAL_CAPACITY;
 }

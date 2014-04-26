@@ -137,7 +137,7 @@ let fast_impl impl tf =
     fast_consume     = (fun channel msg -> Llvm.build_call consume [| channel; msg; size |]);
   })
 
-let fast_queue = fast_impl "fast_queue" (function t -> Llvm.struct_type context [| ptr_type; ptr_type; size_type |])
+let fast_queue = fast_impl "fast_queue" (function t -> Llvm.struct_type context [| ptr_type; ptr_type; size_type; Llvm.array_type t 32 |])
 let fast_cell  = fast_impl "fast_cell" (function t -> Llvm.struct_type context [| ptr_type; t |])
 let fast_mem   = fast_impl "fast_mem" (function t -> Llvm.struct_type context [| t |])
 
