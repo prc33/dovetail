@@ -135,7 +135,15 @@ let compile_program p =
         match Map.find fast_channels c.name with
         (* Normal Channels *)
         | Some (_,this_impl) ->
-          (* TODO: this pattern matching can be forgotten for lower_bound=upper_bound, head channels (as the enqueue in those cases does not change anything) *)
+          (* This pattern matching can be forgotten for lower_bound=upper_bound, head channels (as the enqueue in those cases does not change anything) *)
+          let upperbound = List.find_map c.cattrs (function CAttribute.UpperBound x -> Some x | _ -> None) in
+          let lowerbound = List.find_map c.cattrs (function CAttribute.LowerBound x -> Some x | _ -> None) in
+          let headchan   = List.mem c.cattrs CAttribute.Head in
+
+          let transitions_to_check = match (headchan, upperbound, lowerbound) with
+            | (true, x, y) -> if x = y then [] else List.filter compiled_transitions (fun (t,b) -> List.mem (List.map t.pattern fst) c.name)
+            | _ -> List.filter compiled_transitions (fun (t,b) -> List.mem (List.map t.pattern fst) c.name)
+          in
 
           (* Consider every transition matching on c. Builder is passed through in fold manner *)
           let bb = bb |> fold (fun (transition,func) bb ->
@@ -172,7 +180,7 @@ let compile_program p =
 
             (* Pass next_transition block for the next transition (or end of loop if this is the last) *)
             Llvm.builder_at_end context next_transition
-          ) (List.filter compiled_transitions (fun (t,b) -> List.mem (List.map t.pattern fst) c.name)) in
+          ) transitions_to_check in
 
           (* After all transitions fail, actually enqueue message. *)
           this_impl.Runtime.fast_enqueue (Map.find_exn channels c.name) value ("msg." ^ c.name) bb |> ignore;
