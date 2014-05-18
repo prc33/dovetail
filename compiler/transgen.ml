@@ -4,13 +4,7 @@
  *                     University of Cambridge Computer Laboratory            *)
 
 open Jcam
-module SMap = Map.Make(String)
 open Core.Std
-
-exception No_value
-let option_get x = match x with
-    Some x -> x
-  | None -> raise No_value
 
 let fold  f l s = List.fold_left l ~init:s ~f:(fun s x -> f x s)
 let foldi f l s = snd (List.fold_left l ~init:(0,s) ~f:(fun (i,s) x -> (i+1, f (i,x) s)))
@@ -21,37 +15,35 @@ let llmod = Runtime.llmod
 let void_type = Llvm.void_type context
 let make_int = Llvm.const_int (Llvm.i32_type context)
 
-let cmp_null v = Llvm.build_icmp Llvm.Icmp.Eq v (Llvm.const_null (Llvm.type_of v))
-
 let pattern_types types = List.map ~f:(function (c, ts) -> Typegen.structure (fun t -> types (fst t)) ts)
 
 type state = {
   types: Typegen.t;
-  values: Llvm.llvalue SMap.t;
-  blocks: Llvm.llbasicblock SMap.t;
-  undef: Llvm.llvalue SMap.t;
+  values: Llvm.llvalue String.Map.t;
+  blocks: Llvm.llbasicblock String.Map.t;
+  undef: Llvm.llvalue String.Map.t;
   constructors: Llvm.llvalue String.Map.t;
-  constants: Llvm.llvalue SMap.t;
+  constants: Llvm.llvalue String.Map.t;
 }
 
-let get_state types constructors values constants = { types=types; values=values; blocks=SMap.empty; undef=SMap.empty; constructors=constructors; constants=constants }
+let get_state types constructors values constants = { types=types; values=values; blocks=String.Map.empty; undef=String.Map.empty; constructors=constructors; constants=constants }
 
 let init_state f = fold (fun b state -> (match b.label with
     | None   ->   state
-    | Some l -> { state with blocks=SMap.add l (Llvm.append_block context l f) state.blocks }
+    | Some l -> { state with blocks=Map.add state.blocks l (Llvm.append_block context l f) }
     ) |>
 
     (* Placeholder values for any Phi-nodes *)
     fold (fun (v,t,_) state ->
       let placeholder = Llvm.declare_global (state.types t) ("fref." ^ v) llmod in
-      { state with values=SMap.add v placeholder state.values; undef=SMap.add v placeholder state.undef }
+      { state with values=Map.add state.values v placeholder; undef=Map.add state.undef v placeholder }
     ) b.phis |>
 
     (* Placeholder values for all assignments *)
     fold (fun i state -> (match i with
       | Instruction.Assign(v,e) ->
           let placeholder = Llvm.declare_global (state.types (Typing.return_type e)) ("fref." ^ v) llmod in
-          { state with values=SMap.add v placeholder state.values; undef=SMap.add v placeholder state.undef }
+          { state with values=Map.add state.values v placeholder; undef=Map.add state.undef v placeholder }
       | _ -> state
       )
     ) b.instrs
@@ -59,16 +51,16 @@ let init_state f = fold (fun b state -> (match b.label with
 
 let generate_block f instance block state =
   let value t v s = match v with
-    | Value.Var(v)      -> SMap.find v s.values
+    | Value.Var(v)      -> Map.find_exn s.values v
     | Value.Integer(x)  -> Llvm.const_int t x
     | Value.Float(x)    -> Llvm.const_float t x
-    | Value.Constant(v) -> SMap.find v s.constants
+    | Value.Constant(v) -> Map.find_exn s.constants v
     | Value.Null        -> Llvm.const_null t
   in
 
   (* Position builder at correct block *)
   let bb = Llvm.builder_at_end context (match block.label with
-    | Some l -> SMap.find l state.blocks
+    | Some l -> Map.find_exn state.blocks l
     | None   -> Llvm.entry_block f)
   in
 
@@ -147,22 +139,22 @@ let generate_block f instance block state =
   (* Phi Nodes *)
   fold (fun (v,t,incoming) s ->
       let t = (s.types t) in
-      let old_value = SMap.find v s.undef in
-      let new_value = Llvm.build_phi (List.map incoming (fun (i,l) -> (value t i s, SMap.find l s.blocks))) v bb in
+      let old_value = Map.find_exn s.undef v in
+      let new_value = Llvm.build_phi (List.map incoming (fun (i,l) -> (value t i s, Map.find_exn s.blocks l))) v bb in
       Llvm.replace_all_uses_with old_value new_value;
       Llvm.delete_global old_value;
-    { s with values=SMap.add v new_value s.values; undef=SMap.remove v s.undef }  
+    { s with values=Map.add s.values v new_value; undef=Map.remove s.undef v }  
   ) block.phis |>
 
   (* Other Instructions *)
   fold (fun i s -> match i with
     (* Assignments and Expressions *)
     | Instruction.Assign(v,e) ->
-        let old_value = SMap.find v s.undef in
+        let old_value = Map.find_exn s.undef v in
         let new_value = build_expr v s e in
         Llvm.replace_all_uses_with old_value new_value;
         Llvm.delete_global old_value;
-        { s with values=SMap.add v new_value s.values; undef=SMap.remove v s.undef }
+        { s with values=Map.add s.values v new_value; undef=Map.remove s.undef v }
     (* Array Stores *)
     | Instruction.Store(Type.Array(t) as arr_t,a,e,i) ->
       let data = Llvm.build_extractvalue (value (s.types arr_t) a s) 1 "" bb in (* TODO: names for these temporaries? *)
@@ -194,8 +186,8 @@ let generate_block f instance block state =
   (* Terminator instruction *)
   begin match block.terminator with
   | Terminator.Finish      -> Llvm.build_ret_void bb |> ignore
-  | Terminator.Goto(l)     -> Llvm.build_br (SMap.find l state.blocks) bb |> ignore
-  | Terminator.Cond(v,a,b) -> Llvm.build_cond_br (value Runtime.bool_type v state) (SMap.find a state.blocks) (SMap.find b state.blocks) bb |> ignore
+  | Terminator.Goto(l)     -> Llvm.build_br (Map.find_exn state.blocks l) bb |> ignore
+  | Terminator.Cond(v,a,b) -> Llvm.build_cond_br (value Runtime.bool_type v state) (Map.find_exn state.blocks a) (Map.find_exn state.blocks b) bb |> ignore
   end;
 
   state
@@ -206,13 +198,13 @@ let generate_body f blocks instance state =
   let raw_instance = Llvm.build_bitcast instance Runtime.instance_t "raw_inst" bb in
 
   (* Adjusts channel values to include current instance *)
-  let adjust_channel name v = match Llvm.classify_value v with
+  let adjust_channel ~key:name ~data:v = match Llvm.classify_value v with
     | Llvm.ValueKind.Function -> Llvm.build_insertvalue (Llvm.const_struct context [| v; Llvm.undef Runtime.instance_t |]) raw_instance 1 name bb
     | _ -> v
   in
 
   (* Modify all channel values in state to include current instance *)
-  { state with values=SMap.mapi adjust_channel state.values } |>
+  { state with values=Map.mapi state.values adjust_channel } |>
 
   (* Create empty basic blocks and placeholder values *)
   init_state f blocks |>
@@ -265,13 +257,13 @@ let generate_slow_transition state instance_t t =
   let m = Llvm.param slow 1 in
 
   (* Initialise arguments in state by extracting from match *)
-  state |> foldi (fun (i,(_,ts)) -> foldi (fun (j,(t,var)) s -> { s with values=SMap.add
+  state |> foldi (fun (i,(_,ts)) -> foldi (fun (j,(t,var)) s -> { s with values=Map.add s.values
     var
     (
       let ptr = Llvm.build_in_bounds_gep m [| make_int 0; make_int (i+2); make_int j |] (var ^ "_ptr") bb in
       Llvm.build_load ptr var bb
     )
-  s.values }) ts) t.pattern |>
+  }) ts) t.pattern |>
   
   (* Define body for slow version *)
   generate_body slow t.blocks (
@@ -288,12 +280,11 @@ let generate_fast_transition state instance_t t =
   let bb = Llvm.builder_at_end context (Llvm.entry_block fast) in
 
   (* Initialise arguments in state with by extracting values from parameter structures *)
-  state |> foldi (fun (i,(_,ts)) -> foldi (fun (j,(t,var)) s -> { s with values=SMap.add
+  state |> foldi (fun (i,(_,ts)) -> foldi (fun (j,(t,var)) s -> { s with values=Map.add s.values
     var
     (Llvm.build_extractvalue (Llvm.param fast (i+2)) j var bb)
-  s.values }) ts) t.pattern |>
+  }) ts) t.pattern |>
 
   (* Define body for fast version *)
   generate_body fast t.blocks (Llvm.param fast 1);
   fast
-

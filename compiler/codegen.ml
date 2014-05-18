@@ -4,18 +4,9 @@
  *                     University of Cambridge Computer Laboratory            *)
  
 open Jcam
-
-module SMap = Map.Make(String)
-
 open Core.Std
 
-exception No_value
-let option_get x = match x with
-    Some x -> x
-  | None -> raise No_value
-
 let fold  f l s = List.fold_left l ~init:s ~f:(fun s x -> f x s)
-let foldi f l s = snd (List.fold_left l ~init:(0,s) ~f:(fun (i,s) x -> (i+1, f (i,x) s)))
 
 (** LLVM Code Generation                                                      *)
 
@@ -71,7 +62,7 @@ let compile_program p =
         Llvm.set_instruction_call_conv Function.fastcc call;
         Llvm.set_tail_call true call;
         Llvm.build_ret_void bb |> ignore;
-        SMap.add name (Llvm.const_struct context [| emit; Llvm.const_null Runtime.instance_t |]) constants
+        Map.add constants name (Llvm.const_struct context [| emit; Llvm.const_null Runtime.instance_t |])
     (* Return without Value Case *)
     | Type.Void ->
         (* External Function Declaration *)
@@ -95,11 +86,11 @@ let compile_program p =
         Llvm.set_instruction_call_conv Function.fastcc call;
         Llvm.set_tail_call true call;
         Llvm.build_ret_void bb |> ignore;
-        SMap.add name (Llvm.const_struct context [| emit; Llvm.const_null Runtime.instance_t |]) constants
+        Map.add constants name (Llvm.const_struct context [| emit; Llvm.const_null Runtime.instance_t |])
     (* TODO: Async case *)
     | _ -> constants (* enqueue a match that calls a helper that calls the function (helper needed to avoid fastcc) *)
   in
-  let constants = List.fold_right p.externs ~f:generate_externs ~init:SMap.empty in
+  let constants = List.fold_right p.externs ~f:generate_externs ~init:String.Map.empty in
 
   let generate_def def =
     (* Function to calculate channel implementations and types. *)
@@ -108,21 +99,21 @@ let compile_program p =
         | (c::cs) -> (match f c.cattrs with
                       | Some impl_f ->
                           let (t,impl) = impl_f (Typegen.structure types c.args) in
-                          SMap.add c.name (i,impl) (mc (i+1) (t::ts) cs)
+                          Map.add (mc (i+1) (t::ts) cs) c.name (i,impl)
                       | None -> mc i ts cs)
-        | []      -> Llvm.struct_set_body instance (Array.of_list (List.rev ts)) false; SMap.empty
+        | []      -> Llvm.struct_set_body instance (Array.of_list (List.rev ts)) false; String.Map.empty
       in mc 0 [] def.channels
     in
 
-    (* Declares functions for constructors and channels, with the given prefix and adds to the state *)
-    let declare_channels version = fold (fun c values ->
-        let chan_type = Typegen.structure types c.args in
-        if not c.constructor then
-          let t = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; chan_type |] in
+    (* Declares functions for non-constructor channels, with the given prefix and returns a map. *)
+    let declare_emits version = List.fold_left def.channels ~init:String.Map.empty ~f:(fun values c ->
+        if c.constructor then
+          values
+        else
+          let t = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; Typegen.structure types c.args |] in
           let f = Function.fast (Llvm.define_function ("emit." ^ version ^ "." ^ c.name) t llmod) in
-          SMap.add c.name f values
-        else values
-      ) def.channels
+          Map.add values c.name f
+      )
     in
 
     (* Fast version of definition (keeping construct functions for use in slow version) *)
@@ -131,7 +122,7 @@ let compile_program p =
       let fast_channels = make_channels Runtime.fast_channel fast_instance in
 
       (* Declare construct/emit functions, adding them to the state. *)
-      let fast_state = Transgen.get_state types fast_constructors (declare_channels "fast" SMap.empty) constants in
+      let fast_state = Transgen.get_state types fast_constructors (declare_emits "fast") constants in
 
       (* Compile transitions (keeping track of functions for emit functions later) *)
       let compiled_transitions = List.map def.transitions (fun x -> (x, Transgen.generate_fast_transition fast_state (Llvm.pointer_type fast_instance) x)) in
@@ -141,10 +132,9 @@ let compile_program p =
         (* Worker structure (always first parameter) *)
         let worker = Llvm.param f 0 in
 
+        match Map.find fast_channels c.name with
         (* Normal Channels *)
-        if SMap.mem c.name fast_channels then begin
-          let (_, this_impl) = (SMap.find c.name fast_channels) in
-
+        | Some (_,this_impl) ->
           (* TODO: this pattern matching can be forgotten for lower_bound=upper_bound, head channels (as the enqueue in those cases does not change anything) *)
 
           (* Consider every transition matching on c. Builder is passed through in fold manner *)
@@ -156,9 +146,9 @@ let compile_program p =
               if name = c.name then (
                 bb, (name,value,this_impl)::msgs (* for the current channel we simply use the value passed in, message is only enqueued in case of no match *)
               ) else (
-                let (_,impl)  = SMap.find name fast_channels in
+                let (_,impl)  = Map.find_exn fast_channels name in
                 let next_chan = Llvm.append_block context ("post.find." ^ (string_of_int transition.tid) ^ "." ^ name) f in
-                let msg       = impl.Runtime.fast_find (SMap.find name channels) ("msg." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
+                let msg       = impl.Runtime.fast_find (Map.find_exn channels name) ("msg." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
                 let check     = cmp_null msg ("fcheck." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
                 Llvm.build_cond_br check next_transition next_chan bb |> ignore;
                 
@@ -171,7 +161,7 @@ let compile_program p =
               if name = c.name then (
                 value
               ) else (
-                impl.Runtime.fast_consume (SMap.find name channels) msg "" bb |> ignore;
+                impl.Runtime.fast_consume (Map.find_exn channels name) msg "" bb |> ignore;
                 let ptr = impl.Runtime.fast_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
                 Llvm.build_load ptr ("data." ^ (string_of_int transition.tid) ^ "." ^ name) bb
               )
@@ -185,15 +175,13 @@ let compile_program p =
           ) (List.filter compiled_transitions (fun (t,b) -> List.mem (List.map t.pattern fst) c.name)) in
 
           (* After all transitions fail, actually enqueue message. *)
-          this_impl.Runtime.fast_enqueue (SMap.find c.name channels) value ("msg." ^ c.name) bb |> ignore;
+          this_impl.Runtime.fast_enqueue (Map.find_exn channels c.name) value ("msg." ^ c.name) bb |> ignore;
           Llvm.build_ret_void bb |> ignore
         (* Channels where pattern matching is not required *)
-        end else begin
+        | None ->
           let (transition,func) = List.find_exn compiled_transitions ~f:(fun (t,b) -> (List.map t.pattern fst) = [ c.name ]) in
           Llvm.build_call func [| worker; inst; value |] "" bb |> Llvm.set_tail_call tail_call;
           Llvm.build_ret_void bb |> ignore
-        end
-
       in
 
       (* Actual produce emit and construct function bodies *)
@@ -204,24 +192,24 @@ let compile_program p =
           let bb = Llvm.builder_at_end context (Llvm.entry_block f) in
           let inst = Llvm.build_alloca fast_instance "inst" bb in
           
-          let channels = SMap.mapi (fun name (i,impl) ->
-            let raw_ptr = Llvm.build_struct_gep inst i (name ^ ".raw") bb in
-            let ptr     = impl.Runtime.fast_build_cast raw_ptr name bb in
+          let channels = Map.mapi fast_channels (fun ~key ~data:(i,impl) ->
+            let raw_ptr = Llvm.build_struct_gep inst i (key ^ ".raw") bb in
+            let ptr     = impl.Runtime.fast_build_cast raw_ptr key bb in
             impl.Runtime.fast_init ptr "" bb |> ignore;
             ptr
-          ) fast_channels in
+          ) in
 
           generate_fast_emit f c inst channels (Llvm.param f 1) bb false
         (* Normal (worker, instance, value): bitcast instance pointer, extract channel pointers, then build body *)
         else
-          let f    = SMap.find c.name fast_state.values in
+          let f    = Map.find_exn fast_state.values c.name in
           let bb   = Llvm.builder_at_end context (Llvm.entry_block f) in
           let inst = Llvm.build_bitcast (Llvm.param f 1) (Llvm.pointer_type fast_instance) "inst" bb in
 
-          let channels = SMap.mapi (fun name (i,impl) ->
-            let raw_ptr = Llvm.build_struct_gep inst i (name ^ ".raw") bb in
-            impl.Runtime.fast_build_cast raw_ptr name bb
-          ) fast_channels in
+          let channels = Map.mapi fast_channels (fun ~key ~data:(i,impl) ->
+            let raw_ptr = Llvm.build_struct_gep inst i (key ^ ".raw") bb in
+            impl.Runtime.fast_build_cast raw_ptr key bb
+          ) in
 
           generate_fast_emit f c inst channels (Llvm.param f 2) bb true
       );
@@ -231,7 +219,7 @@ let compile_program p =
     let slow_channels = make_channels Runtime.slow_channel slow_instance in
 
     (* Declare construct/emit functions, adding them to the state. *)
-    let slow_state = Transgen.get_state types slow_constructors (declare_channels "slow" SMap.empty) constants in
+    let slow_state = Transgen.get_state types slow_constructors (declare_emits "slow") constants in
 
     (* Compile transitions (keeping track of functions for emit functions later) *)
     let compiled_transitions = List.map def.transitions (fun x -> (x, Transgen.generate_slow_transition slow_state (Llvm.pointer_type slow_instance) x)) in
@@ -241,13 +229,13 @@ let compile_program p =
       (* Worker structure (always first parameter) *)
       let worker = Llvm.param f 0 in
 
+      match Map.find slow_channels c.name with
       (* Normal Channels *)
-      if SMap.mem c.name slow_channels then begin
-        let (_, this_impl) = (SMap.find c.name slow_channels) in
+      Some (_, this_impl) ->
         let retry_false = Llvm.const_int (Llvm.i8_type context) 0 in
 
         (* Enqueuing of new message *)
-        let new_msg = this_impl.Runtime.slow_enqueue (SMap.find c.name channels) value ("msg." ^ c.name) bb in
+        let new_msg = this_impl.Runtime.slow_enqueue (Map.find_exn channels c.name) value ("msg." ^ c.name) bb in
 
         (* Allocate retry flag *)
         let retry = Llvm.build_alloca (Llvm.i8_type context) "retry" bb in
@@ -286,9 +274,9 @@ let compile_program p =
             if name = c.name then (
               bb, (name,new_msg,this_impl)::msgs
             ) else (
-              let (_,impl)  = SMap.find name slow_channels in
+              let (_,impl)  = Map.find_exn slow_channels name in
               let next_chan = Llvm.insert_block context ("post.find." ^ (string_of_int transition.tid) ^ "." ^ name) next_transition in
-              let msg       = impl.Runtime.slow_find (SMap.find name channels) retry ("msg." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
+              let msg       = impl.Runtime.slow_find (Map.find_exn channels name) retry ("msg." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
               let check     = cmp_null msg ("fcheck." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
               Llvm.build_cond_br check next_transition next_chan bb |> ignore;
               
@@ -335,11 +323,10 @@ let compile_program p =
         let retry_check = Llvm.build_icmp Llvm.Icmp.Eq retry_value retry_false "retry_check" bb in
         Llvm.build_cond_br retry_check exit loop bb |> ignore
       (* Channels where pattern matching is not required *)
-      end else begin
+      | None ->
         let (transition,build) = List.find_exn compiled_transitions ~f:(fun (t,b) -> (List.map t.pattern fst) = [ c.name ]) in
         Llvm.build_call build [| worker; inst; value |] "" bb |> ignore;
         Llvm.build_ret_void bb |> ignore
-      end
     in
 
     (* Actual produce emit and construct function bodies *)
@@ -350,42 +337,45 @@ let compile_program p =
         let bb        = Llvm.builder_at_end context (Llvm.entry_block f) in
         let slow_mode = Llvm.append_block context "slow_mode" f in
         
-        if Map.mem fast_constructors c.name then (
+        begin match Map.find fast_constructors c.name with
+        (* Fast constructor available *)
+        | Some fast_constructor ->
           let fast_mode = Llvm.append_block context "fast_mode" f in
           let check = Llvm.build_call Runtime.fast_check [| Llvm.param f 0 |] "check" bb in
           Llvm.build_cond_br check fast_mode slow_mode bb |> ignore;
 
           let bb = Llvm.builder_at_end context fast_mode in
-          let call = Llvm.build_call (Map.find_exn fast_constructors c.name) (Llvm.params f) "" bb in
+          let call = Llvm.build_call fast_constructor (Llvm.params f) "" bb in
           Llvm.set_instruction_call_conv Function.fastcc call;
           Llvm.set_tail_call true call;
           Llvm.build_ret_void bb |> ignore
-        ) else (
+        (* Only slow mode *)
+        | None ->
           Llvm.build_br slow_mode bb |> ignore
-        );
+        end;
 
         (* Heap allocation *)
         let bb   = Llvm.builder_at_end context slow_mode in
         let inst = Llvm.build_call (Runtime.malloc slow_instance) [| Llvm.size_of slow_instance |] "inst" bb in
         
-        let channels = SMap.mapi (fun name (i,impl) ->
-          let raw_ptr = Llvm.build_struct_gep inst i (name ^ ".raw") bb in
-          let ptr     = impl.Runtime.slow_build_cast raw_ptr name bb in
+        let channels = Map.mapi slow_channels (fun ~key ~data:(i,impl) ->
+          let raw_ptr = Llvm.build_struct_gep inst i (key ^ ".raw") bb in
+          let ptr     = impl.Runtime.slow_build_cast raw_ptr key bb in
           impl.Runtime.slow_init ptr "" bb |> ignore;
           ptr
-        ) slow_channels in
+        ) in
 
         generate_slow_emit f c inst channels (Llvm.param f 1) bb
       (* Normal (worker, instance, value): bitcast instance pointer, extract channel pointers, then build body *)
       else
-        let f    = SMap.find c.name slow_state.values in
+        let f    = Map.find_exn slow_state.values c.name in
         let bb   = Llvm.builder_at_end context (Llvm.entry_block f) in
         let inst = Llvm.build_bitcast (Llvm.param f 1) (Llvm.pointer_type slow_instance) "inst" bb in
 
-        let channels = SMap.mapi (fun name (i,impl) ->
-          let raw_ptr = Llvm.build_struct_gep inst i (name ^ ".raw") bb in
-          impl.Runtime.slow_build_cast raw_ptr name bb
-        ) slow_channels in
+        let channels = Map.mapi slow_channels (fun ~key ~data:(i,impl) ->
+          let raw_ptr = Llvm.build_struct_gep inst i (key ^ ".raw") bb in
+          impl.Runtime.slow_build_cast raw_ptr key bb
+        ) in
 
         generate_slow_emit f c inst channels (Llvm.param f 2) bb
     )
