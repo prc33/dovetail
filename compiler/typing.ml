@@ -11,3 +11,5 @@ let return_type = function
   | Expr.Load(Type.Array(t),_,_) -> t
   | Expr.Split(t,_,_,_) -> Type.Array(t)
   | Expr.Merge(t,_) -> t
+
+(* TODO: check type aliases acyclic *)

@@ -26,7 +26,7 @@ let make_int = Llvm.const_int (Llvm.i32_type context)
 let cmp_null v = Llvm.build_icmp Llvm.Icmp.Eq v (Llvm.const_null (Llvm.type_of v))
 
 type state = {
-  types: Llvm.lltype SMap.t;
+  types: Typegen.t;
   values: Llvm.llvalue SMap.t;
   blocks: Llvm.llbasicblock SMap.t;
   undef: Llvm.llvalue SMap.t;
@@ -34,39 +34,7 @@ type state = {
   constants: Llvm.llvalue SMap.t;
 }
 
-let blank = { types=SMap.empty; values=SMap.empty; blocks=SMap.empty; undef=SMap.empty; constructors=SMap.empty; constants=SMap.empty }
-
-let rec convert_type types t = match t with
-  | Type.Alias   s  -> SMap.find s types
-  | Type.Array   e  -> Runtime.array_type (convert_type types e)
-  | Type.Float   w  -> (match w with
-                  | 32 -> Llvm.float_type context
-                  | 64 -> Llvm.double_type context
-                  | _  -> failwith ("No floating point type of width " ^ (string_of_int w)))
-  | Type.Integer w  -> Llvm.integer_type context w
-  | Type.Struct  ts -> make_struct types ts (* TODO: should these be passed around by reference or value??? *)
-  | Type.Channel ts -> Llvm.struct_type context [|
-                    Llvm.pointer_type (Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; make_struct types ts |]);
-                    Runtime.instance_t
-                  |]
-    and make_struct types ts = Llvm.struct_type context (Array.of_list (List.map (convert_type types) ts))
-
-let populate_type (name, t) types = match t with
-  | Type.Struct  _ -> SMap.add name (Llvm.named_struct_type context ("named_struct." ^ name)) types
-  | Type.Channel _ -> SMap.add name (Llvm.named_struct_type context ("named_channel." ^ name)) types
-  | _ -> types
-
-let generate_type (name, t) types = match t with
-  | Type.Struct _ ->
-      Llvm.struct_set_body (SMap.find name types) (Llvm.struct_element_types (convert_type types t)) false;
-      types
-  | Type.Channel _ ->
-      Llvm.struct_set_body (SMap.find name types) (Llvm.struct_element_types (convert_type types t)) false;
-      types
-  | _ ->
-      SMap.add name (convert_type types t) types
-
-let pattern_types types = List.map (function (c, ts) -> make_struct types (List.map fst ts))
+let pattern_types types = List.map (function (c, ts) -> Typegen.structure types (List.map fst ts))
 
 module Function = struct
   let fastcc = Llvm.CallConv.fast
@@ -93,14 +61,14 @@ let init_state f = fold (fun b state -> (match b.label with
 
     (* Placeholder values for any Phi-nodes *)
     fold (fun (v,t,_) state ->
-      let placeholder = Llvm.declare_global (convert_type state.types t) ("fref." ^ v) llmod in
+      let placeholder = Llvm.declare_global (state.types t) ("fref." ^ v) llmod in
       { state with values=SMap.add v placeholder state.values; undef=SMap.add v placeholder state.undef }
     ) b.phis |>
 
     (* Placeholder values for all assignments *)
     fold (fun i state -> (match i with
       | Instruction.Assign(v,e) ->
-          let placeholder = Llvm.declare_global (convert_type state.types (Typing.return_type e)) ("fref." ^ v) llmod in
+          let placeholder = Llvm.declare_global (state.types (Typing.return_type e)) ("fref." ^ v) llmod in
           { state with values=SMap.add v placeholder state.values; undef=SMap.add v placeholder state.undef }
       | _ -> state
       )
@@ -126,18 +94,18 @@ let generate_block f instance block state =
   let worker = Llvm.param f 0 in
 
   let build_expr v s = function
-    | Expr.Add(t,a,b) -> let t = (convert_type s.types t) in Llvm.build_add (value t a s) (value t b s) v bb
-    | Expr.Sub(t,a,b) -> let t = (convert_type s.types t) in Llvm.build_sub (value t a s) (value t b s) v bb
+    | Expr.Add(t,a,b) -> let t = (s.types t) in Llvm.build_add (value t a s) (value t b s) v bb
+    | Expr.Sub(t,a,b) -> let t = (s.types t) in Llvm.build_sub (value t a s) (value t b s) v bb
     | Expr.Mul(t,a,b) -> let op = match t with
                                   | Type.Integer(_) -> Llvm.build_mul
                                   | Type.Float(_) -> Llvm.build_fmul in
-                         let t = (convert_type s.types t) in op (value t a s) (value t b s) v bb
+                         let t = (s.types t) in op (value t a s) (value t b s) v bb
     | Expr.Div(t,a,b) -> let op = match t with
                                   | Type.Integer(_) -> Llvm.build_sdiv
                                   | Type.Float(_) -> Llvm.build_fdiv in
-                         let t = (convert_type s.types t) in op (value t a s) (value t b s) v bb
+                         let t = (s.types t) in op (value t a s) (value t b s) v bb
     | Expr.Compare(o,t,a,b) ->
-      let llt = (convert_type s.types t) in (match t with
+      let llt = (s.types t) in (match t with
         | Type.Float(_) -> Llvm.build_fcmp (match o with
           | Eq -> Llvm.Fcmp.Oeq | Ne -> Llvm.Fcmp.One
           | UGt -> Llvm.Fcmp.Ogt | UGe -> Llvm.Fcmp.Oge | ULt -> Llvm.Fcmp.Olt | ULe -> Llvm.Fcmp.Ole  (* FIXME: correct float comparisons? signed/unsigned doesn't make sense *)
@@ -148,7 +116,7 @@ let generate_block f instance block state =
           | Cmp.SGt -> Llvm.Icmp.Sgt | Cmp.SGe -> Llvm.Icmp.Sge | Cmp.SLt -> Llvm.Icmp.Slt | Cmp.SLe -> Llvm.Icmp.Sle)
       ) (value llt a s) (value llt b s) v bb
     | Expr.Array(t, l, vs) ->
-      let t      = convert_type s.types t in
+      let t      = s.types t in
       let len,vs = (match vs with
                     | Arrays.InitList(vs) -> (make_int (List.length vs), List.map (fun e -> value t e s) vs)
                     | Arrays.Length(l) -> (value Runtime.int_type l s, [])) in
@@ -166,12 +134,12 @@ let generate_block f instance block state =
       arr
     | Expr.Length(a) -> Llvm.build_extractvalue (value void_type a s) 0 v bb (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
     | Expr.Load(Type.Array(t) as arr_t,a,i) ->
-      let data = Llvm.build_extractvalue (value (convert_type s.types arr_t) a s) 1 (v ^ ".data") bb in
+      let data = Llvm.build_extractvalue (value (s.types arr_t) a s) 1 (v ^ ".data") bb in
       let ptr  = Llvm.build_gep data [| value (Llvm.i32_type context) i s |] (v ^ ".ptr") bb in
       Llvm.build_load ptr v bb
     | Expr.Split(Type.Array(t) as arr_t,l,a,b) ->
-      let t      = convert_type s.types t in
-      let arr_t  = convert_type s.types arr_t in
+      let t      = s.types t in
+      let arr_t  = s.types arr_t in
       let a      = value arr_t a s in
       let b      = (value (Runtime.array_type Runtime.int_type) b s) in
       let length = Llvm.build_extractvalue b 0 "" bb in
@@ -186,8 +154,8 @@ let generate_block f instance block state =
       Llvm.build_call (Runtime.arrays_split t) [| data; a; b; (Llvm.size_of t) |] "" bb |> ignore;
       arr
     | Merge(Type.Array(t) as arr_t,x) ->
-      let t      = convert_type s.types t in
-      let arr_t  = convert_type s.types arr_t in
+      let t      = s.types t in
+      let arr_t  = s.types arr_t in
       let x      = (value (Runtime.array_type arr_t) x s) in
       Llvm.build_call (Runtime.arrays_merge t) [| x; (Llvm.size_of t) |] v bb
   in
@@ -196,7 +164,7 @@ let generate_block f instance block state =
 
   (* Phi Nodes *)
   fold (fun (v,t,incoming) s ->
-      let t = (convert_type s.types t) in
+      let t = (s.types t) in
       let old_value = SMap.find v s.undef in
       let new_value = Llvm.build_phi (List.map (fun (i,l) -> (value t i s, SMap.find l s.blocks)) incoming) v bb in
       Llvm.replace_all_uses_with old_value new_value;
@@ -215,15 +183,15 @@ let generate_block f instance block state =
         { s with values=SMap.add v new_value s.values; undef=SMap.remove v s.undef }
     (* Array Stores *)
     | Instruction.Store(Type.Array(t) as arr_t,a,e,i) ->
-      let data = Llvm.build_extractvalue (value (convert_type s.types arr_t) a s) 1 "" bb in (* TODO: names for these temporaries? *)
+      let data = Llvm.build_extractvalue (value (s.types arr_t) a s) 1 "" bb in (* TODO: names for these temporaries? *)
       let ptr  = Llvm.build_gep data [| value (Llvm.i32_type context) i s |] "" bb in
-      let e    = value (convert_type s.types t) e s in
+      let e    = value (s.types t) e s in
       Llvm.build_store e ptr bb |> ignore;
       s
     (* Instance Constructions *)
     | Instruction.Construct(c,ps) ->
-        let msg  = Llvm.undef (make_struct s.types (List.map (fun (t,v) -> t) ps)) |>
-                   foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (convert_type s.types t) v s) i "" bb) ps in
+        let msg  = Llvm.undef (Typegen.structure s.types (List.map (fun (t,v) -> t) ps)) |>
+                   foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (s.types t) v s) i "" bb) ps in
         let call = Llvm.build_call (SMap.find c s.constructors) [| worker; msg |] "" bb in
         Llvm.set_instruction_call_conv Function.fastcc call;
         Llvm.set_tail_call true call;
@@ -233,8 +201,8 @@ let generate_block f instance block state =
         let channel = value (void_type) v s in (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
         let func    = Llvm.build_extractvalue channel 0 "" bb in (* TODO: names for these temporaries? *)
         let inst    = Llvm.build_extractvalue channel 1 "" bb in
-        let msg     = Llvm.undef (make_struct s.types (List.map (fun (t,v) -> t) ps)) |>
-                      foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (convert_type s.types t) v s) i "" bb) ps in
+        let msg     = Llvm.undef (Typegen.structure s.types (List.map (fun (t,v) -> t) ps)) |>
+                      foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (s.types t) v s) i "" bb) ps in
         let call    = Llvm.build_call func [| worker; inst; msg |] "" bb in
         Llvm.set_instruction_call_conv Function.fastcc call;
         Llvm.set_tail_call true call;
@@ -350,7 +318,7 @@ let generate_def state def =
     let rec mc i ts = function
       | (c::cs) -> (match f c.cattrs with
                     | Some impl_f ->
-                        let (t,impl) = impl_f (make_struct state.types c.args) in
+                        let (t,impl) = impl_f (Typegen.structure state.types c.args) in
                         SMap.add c.name (i,impl) (mc (i+1) (t::ts) cs)
                     | None -> mc i ts cs)
       | []      -> Llvm.struct_set_body instance (Array.of_list (List.rev ts)) false; SMap.empty
@@ -359,7 +327,7 @@ let generate_def state def =
 
   (* Declares functions for constructors and channels, with the given prefix and adds to the state *)
   let declare_channels version = fold (fun c state ->
-      let chan_type = make_struct state.types c.args in
+      let chan_type = Typegen.structure state.types c.args in
       if c.constructor then
         let t = Llvm.function_type void_type [| Runtime.worker_t; chan_type |] in
         let f = Function.fast (Llvm.define_function ("construct." ^ version ^ "." ^ c.name) t llmod) in
@@ -647,10 +615,10 @@ let generate_externs (name, ts, kt) state =
   (* Return with Value Case *)
   | Type.Return(result_type) -> 
       (* External Function Declaration *)
-      let func_type = Llvm.function_type (convert_type state.types result_type) (Array.of_list (List.map (convert_type state.types) ts)) in
+      let func_type = Llvm.function_type (state.types result_type) (Array.of_list (List.map (state.types) ts)) in
       let func      = Llvm.declare_function name func_type llmod in
       (* Emit Function *)
-      let chan_type = make_struct state.types (ts @ [Type.Channel([result_type])]) in
+      let chan_type = Typegen.structure state.types (ts @ [Type.Channel([result_type])]) in
       let emit_type = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; chan_type |] in
       let emit      = Function.fast (Llvm.define_function ("emit.extern." ^ name) emit_type llmod) in
       let bb        = Llvm.builder_at_end context (Llvm.entry_block emit) in
@@ -662,7 +630,7 @@ let generate_externs (name, ts, kt) state =
       let channel   = Llvm.build_extractvalue msg_in (List.length ts) "k" bb in
       let k_func    = Llvm.build_extractvalue channel 0 "k_func" bb in
       let k_inst    = Llvm.build_extractvalue channel 1 "k_inst" bb in
-      let msg_out   = Llvm.build_insertvalue (Llvm.undef (make_struct state.types [ result_type ])) result 0 "msg" bb in
+      let msg_out   = Llvm.build_insertvalue (Llvm.undef (Typegen.structure state.types [ result_type ])) result 0 "msg" bb in
       let call      = Llvm.build_call k_func [| (Llvm.param emit 0); k_inst; msg_out |] "" bb in
       Llvm.set_instruction_call_conv Function.fastcc call;
       Llvm.set_tail_call true call;
@@ -671,10 +639,10 @@ let generate_externs (name, ts, kt) state =
   (* Return without Value Case *)
   | Type.Void ->
       (* External Function Declaration *)
-      let func_type = Llvm.function_type void_type (Array.of_list (List.map (convert_type state.types) ts)) in
+      let func_type = Llvm.function_type void_type (Array.of_list (List.map (state.types) ts)) in
       let func      = Llvm.declare_function name func_type llmod in
       (* Emit Function *)
-      let chan_type = make_struct state.types (ts @ [Type.Channel([])]) in
+      let chan_type = Typegen.structure state.types (ts @ [Type.Channel([])]) in
       let emit_type = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; chan_type |] in
       let emit      = Function.fast (Llvm.define_function ("emit.extern." ^ name) emit_type llmod) in
       let bb        = Llvm.builder_at_end context (Llvm.entry_block emit) in
@@ -696,8 +664,7 @@ let generate_externs (name, ts, kt) state =
   | _ -> state (* enqueue a match that calls a helper that calls the function (helper needed to avoid fastcc) *)
 
 let generate_module p =
-  let top_types = SMap.empty |> fold populate_type p.named_types |> fold generate_type p.named_types in
-  let state = { blank with types=top_types} |> fold generate_externs p.externs in
+  let state = { types=Typegen.generate p.named_types; values=SMap.empty; blocks=SMap.empty; undef=SMap.empty; constructors=SMap.empty; constants=SMap.empty } |> fold generate_externs p.externs in
   List.iter (generate_def state) p.definitions;
   Llvm.dump_module llmod; (* Useful for debugging *)
   llmod
