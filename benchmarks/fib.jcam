@@ -1,13 +1,9 @@
 @print.int = extern (i32) -> i32
 
 definition closed {
-  channel @fib(i32, (i32))  functional
-  channel %a(i32)           cell
-  channel %b(i32)           cell
-  channel %temp((i32))      mem
-
   channel @main(i32, (i32)) functional
   channel %result(i32)      cell
+  channel %temp((i32))      mem
 
   transition @main(i32 %x, (i32) %k) {
     emit %temp((i32) %k)
@@ -19,6 +15,13 @@ definition closed {
     emit @print.int(i32 %x, (i32) %k)
     finish
   }
+}
+
+definition closed {
+  channel @fib(i32, (i32))  functional
+  channel %a(i32)           cell
+  channel %b(i32)           cell
+  channel %temp((i32))      mem
 
   transition @fib(i32 %x, (i32) %k) {
     %base = cmp ult i32 %x, 2

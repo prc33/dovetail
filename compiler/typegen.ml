@@ -1,3 +1,8 @@
+(* Dovetail JCAM
+ *
+ * Copyright 2014      Peter Calvert <peter.calvert@cl.cam.ac.uk>
+ *                     University of Cambridge Computer Laboratory            *)
+
 open Jcam
 open Core.Std
 

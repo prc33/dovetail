@@ -34,6 +34,7 @@ typedef struct {
 #define INITIAL_CAPACITY 32
 
 __attribute__((always_inline)) void fast_queue_init(queue_t *queue, size_t size) {
+  // Initial buffer is allocated within instance.
   queue->data = queue + 1;
   queue->top = queue->data;
   queue->capacity = INITIAL_CAPACITY;

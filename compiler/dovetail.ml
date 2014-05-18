@@ -19,9 +19,10 @@ let print_tokens stream = Stream.iter print_token stream
 
 let get_stream f = Lexer.lex (Stream.of_channel (open_in f))
 
-let main f1 f2 = Llvm_bitwriter.write_bitcode_file
-  (Codegen.generate_module (Parser.parse (get_stream f1)))
-  f2
+let main f1 f2 = 
+  Codegen.compile_program (Parser.parse (get_stream f1));
+  Llvm.dump_module Runtime.llmod;
+  Llvm_bitwriter.write_bitcode_file Runtime.llmod f2
 
 let () = match Sys.argv with
   | [|_; f1; f2|] -> ignore (main f1 f2)
