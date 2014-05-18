@@ -2,6 +2,24 @@
 @print_array = extern ([i32]) -> i32
 
 definition closed {
+  channel @main(i32, (i32))   functional
+  channel %temp((i32))        mem
+  channel %final(i32)         cell
+
+  transition @main(i32 %n, (i32) %k) {
+    %a = array [i32 x %n]
+    emit %temp((i32) %k)
+    construct @nqueens(i32 %n, i32 0, [i32] %a, (i32) %final)
+    finish
+  }
+  
+  transition %temp((i32) %k) %final(i32 %x) {
+    emit @print.int(i32 %x, (i32) %k)
+    finish
+  }
+}
+
+definition closed {
   channel @nqueens(i32, i32, [i32], (i32))    functional
   channel %next(i32, i32, [i32], i32, (i32))
   channel %results(i32)
@@ -109,22 +127,4 @@ definition closed {
     emit %k(i32 %new_sum)
     finish
   } 
-;}
-
-;definition closed {
-  channel @main(i32, (i32))   functional
-  channel %temp((i32))        mem
-  channel %final(i32)         cell
-
-  transition @main(i32 %n, (i32) %k) {
-    %a = array [i32 x %n]
-    emit %temp((i32) %k)
-    construct @nqueens(i32 %n, i32 0, [i32] %a, (i32) %final)
-    finish
-  }
-  
-  transition %temp((i32) %k) %final(i32 %x) {
-    emit @print.int(i32 %x, (i32) %k)
-    finish
-  }
 }

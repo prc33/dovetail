@@ -5,7 +5,7 @@ definition closed {
   channel @main(i32, (i32))    functional
   channel %quit((i32))         mem
   channel %init_val(i32)       cell
-  channel %init_arr([i32],i32) cell        ; Cheating: static analysis would struggle to get this beyond cell
+  channel %init_arr([i32],i32) cell        ; Static analysis would struggle to get this beyond cell, but mem is ok...
   channel %result([i32])       cell
 
   transition @main(i32 %x, (i32) %k) {
@@ -38,10 +38,10 @@ definition closed {
     emit @print_array([i32] %arr, (i32) %k)
     finish
   }
-;}
+}
 
 ; Quicksort: transcribed from http://rosettacode.org/wiki/Sorting_algorithms/Quicksort#C
-;definition closed {
+definition closed {
   channel @quicksort([i32], ([i32]))   functional
   channel %temp([i32], ([i32]))        mem
   channel %merge_left([i32])           cell
@@ -100,8 +100,6 @@ definition closed {
     construct @quicksort([i32] %right_arr, ([i32]) %merge_right)
     finish
   }
-
-channel %foo(i32) mem
 
   transition %merge_left([i32] %left_result) %merge_right([i32] %right_result) %temp([i32] %mid, ([i32]) %k) {
     %segments = array local [[i32] %left_result, %mid, %right_result]
