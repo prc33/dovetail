@@ -7,13 +7,15 @@ open Jcam
 
 module SMap = Map.Make(String)
 
+open Core.Std
+
 exception No_value
 let option_get x = match x with
     Some x -> x
   | None -> raise No_value
 
-let fold  f l s = List.fold_left (fun s x -> f x s) s l
-let foldi f l s = snd (List.fold_left (fun (i,s) x -> (i+1, f (i,x) s)) (0, s) l)
+let fold  f l s = List.fold_left l ~init:s ~f:(fun s x -> f x s)
+let foldi f l s = snd (List.fold_left l ~init:(0,s) ~f:(fun (i,s) x -> (i+1, f (i,x) s)))
 
 (** LLVM Code Generation                                                      *)
 
@@ -34,7 +36,7 @@ type state = {
   constants: Llvm.llvalue SMap.t;
 }
 
-let pattern_types types = List.map (function (c, ts) -> Typegen.structure types (List.map fst ts))
+let pattern_types types = List.map ~f:(function (c, ts) -> Typegen.structure (fun t -> types (fst t)) ts)
 
 module Function = struct
   let fastcc = Llvm.CallConv.fast
@@ -118,7 +120,7 @@ let generate_block f instance block state =
     | Expr.Array(t, l, vs) ->
       let t      = s.types t in
       let len,vs = (match vs with
-                    | Arrays.InitList(vs) -> (make_int (List.length vs), List.map (fun e -> value t e s) vs)
+                    | Arrays.InitList(vs) -> (make_int (List.length vs), List.map vs (fun e -> value t e s))
                     | Arrays.Length(l) -> (value Runtime.int_type l s, [])) in
       let data   = if l then Llvm.build_array_alloca t len (v ^ ".data") bb
                         else begin
@@ -128,9 +130,9 @@ let generate_block f instance block state =
                         end in
       let tmparr = Llvm.build_insertvalue (Llvm.undef (Runtime.array_type t)) len 0 "" bb in
       let arr    = Llvm.build_insertvalue tmparr data 1 v bb in
-      List.iteri (fun i e ->
+      List.iteri vs (fun i e ->
         Llvm.build_store e (Llvm.build_in_bounds_gep data [| make_int i |] (v ^ "." ^ (string_of_int i)) bb) bb |> ignore
-      ) vs;
+      );
       arr
     | Expr.Length(a) -> Llvm.build_extractvalue (value void_type a s) 0 v bb (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
     | Expr.Load(Type.Array(t) as arr_t,a,i) ->
@@ -166,7 +168,7 @@ let generate_block f instance block state =
   fold (fun (v,t,incoming) s ->
       let t = (s.types t) in
       let old_value = SMap.find v s.undef in
-      let new_value = Llvm.build_phi (List.map (fun (i,l) -> (value t i s, SMap.find l s.blocks)) incoming) v bb in
+      let new_value = Llvm.build_phi (List.map incoming (fun (i,l) -> (value t i s, SMap.find l s.blocks))) v bb in
       Llvm.replace_all_uses_with old_value new_value;
       Llvm.delete_global old_value;
     { s with values=SMap.add v new_value s.values; undef=SMap.remove v s.undef }  
@@ -190,7 +192,7 @@ let generate_block f instance block state =
       s
     (* Instance Constructions *)
     | Instruction.Construct(c,ps) ->
-        let msg  = Llvm.undef (Typegen.structure s.types (List.map (fun (t,v) -> t) ps)) |>
+        let msg  = Llvm.undef (Typegen.structure s.types (List.map ps (fun (t,v) -> t))) |>
                    foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (s.types t) v s) i "" bb) ps in
         let call = Llvm.build_call (SMap.find c s.constructors) [| worker; msg |] "" bb in
         Llvm.set_instruction_call_conv Function.fastcc call;
@@ -201,7 +203,7 @@ let generate_block f instance block state =
         let channel = value (void_type) v s in (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
         let func    = Llvm.build_extractvalue channel 0 "" bb in (* TODO: names for these temporaries? *)
         let inst    = Llvm.build_extractvalue channel 1 "" bb in
-        let msg     = Llvm.undef (Typegen.structure s.types (List.map (fun (t,v) -> t) ps)) |>
+        let msg     = Llvm.undef (Typegen.structure s.types (List.map ps (fun (t,v) -> t))) |>
                       foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (s.types t) v s) i "" bb) ps in
         let call    = Llvm.build_call func [| worker; inst; msg |] "" bb in
         Llvm.set_instruction_call_conv Function.fastcc call;
@@ -340,7 +342,7 @@ let generate_def state def =
   in
 
   (* Fast version of definition (keeping construct functions for use in slow version) *)
-  let fast_constructors = if List.mem DAttribute.Closed def.dattrs then
+  let fast_constructors = if List.mem def.dattrs DAttribute.Closed then
     let fast_instance = Llvm.named_struct_type context ("instance.fast." ^ string_of_int def.did) in
     let fast_channels = make_channels Runtime.fast_channel fast_instance in
 
@@ -348,7 +350,7 @@ let generate_def state def =
     let fast_state = state |> (declare_channels "fast") in
 
     (* Compile transitions (keeping track of functions for emit functions later) *)
-    let compiled_transitions = List.map (fun x -> (x, generate_fast_transition fast_state (Llvm.pointer_type fast_instance) x)) def.transitions in
+    let compiled_transitions = List.map def.transitions (fun x -> (x, generate_fast_transition fast_state (Llvm.pointer_type fast_instance) x)) in
 
     (* Compilation function for fast emit bodies *)
     let generate_fast_emit f c inst channels value bb tail_call = 
@@ -366,7 +368,7 @@ let generate_def state def =
           let next_transition = Llvm.append_block context ("post." ^ (string_of_int transition.tid)) f in
 
           (* Find pending messages *)
-          let (bb,msgs) = (bb, []) |> List.fold_right (fun (name, _) (bb,msgs) ->
+          let (bb,msgs) = List.fold_right transition.pattern ~f:(fun (name, _) (bb,msgs) ->
             if name = c.name then (
               bb, (name,value,this_impl)::msgs (* for the current channel we simply use the value passed in, message is only enqueued in case of no match *)
             ) else (
@@ -378,10 +380,10 @@ let generate_def state def =
               
               (Llvm.builder_at_end context next_chan, (name,msg,impl)::msgs)
             )
-          ) transition.pattern in
+          ) ~init:(bb, []) in
 
           (* Deal with success. *)
-          let data = List.map (fun (name,msg,impl) ->
+          let data = List.map msgs (fun (name,msg,impl) ->
             if name = c.name then (
               value
             ) else (
@@ -389,21 +391,21 @@ let generate_def state def =
               let ptr = impl.Runtime.fast_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
               Llvm.build_load ptr ("data." ^ (string_of_int transition.tid) ^ "." ^ name) bb
             )
-          ) msgs in
+          ) in
 
           Llvm.build_call func (Array.of_list (worker::inst::data)) "" bb |> Llvm.set_tail_call tail_call;
           Llvm.build_ret_void bb |> ignore;
 
           (* Pass next_transition block for the next transition (or end of loop if this is the last) *)
           Llvm.builder_at_end context next_transition
-        ) (List.filter (fun (t,b) -> List.mem c.name (List.map fst t.pattern)) compiled_transitions) in
+        ) (List.filter compiled_transitions (fun (t,b) -> List.mem (List.map t.pattern fst) c.name)) in
 
         (* After all transitions fail, actually enqueue message. *)
         this_impl.Runtime.fast_enqueue (SMap.find c.name channels) value ("msg." ^ c.name) bb |> ignore;
         Llvm.build_ret_void bb |> ignore
       (* Channels where pattern matching is not required *)
       end else begin
-        let (transition,func) = List.find (fun (t,b) -> (List.map fst t.pattern) = [ c.name ]) compiled_transitions in
+        let (transition,func) = List.find_exn compiled_transitions ~f:(fun (t,b) -> (List.map t.pattern fst) = [ c.name ]) in
         Llvm.build_call func [| worker; inst; value |] "" bb |> Llvm.set_tail_call tail_call;
         Llvm.build_ret_void bb |> ignore
       end
@@ -411,7 +413,7 @@ let generate_def state def =
     in
 
     (* Actual produce emit and construct function bodies *)
-    List.iter (fun c ->
+    List.iter def.channels (fun c ->
       (* Construtors (worker, value): allocate instance on stack, initialise channels then build body *)
       if c.constructor then
         let f  = SMap.find c.name fast_state.constructors in
@@ -438,7 +440,7 @@ let generate_def state def =
         ) fast_channels in
 
         generate_fast_emit f c inst channels (Llvm.param f 2) bb true
-    ) def.channels;
+    );
 
     fast_state.constructors
   else
@@ -453,7 +455,7 @@ let generate_def state def =
   let slow_state = state |> (declare_channels "slow") in
 
   (* Compile transitions (keeping track of functions for emit functions later) *)
-  let compiled_transitions = List.map (fun x -> (x, generate_slow_transition slow_state (Llvm.pointer_type slow_instance) x)) def.transitions in
+  let compiled_transitions = List.map def.transitions (fun x -> (x, generate_slow_transition slow_state (Llvm.pointer_type slow_instance) x)) in
   
   (* Compilation function for slow emit bodies *)
   let generate_slow_emit f c inst channels value bb =
@@ -501,7 +503,7 @@ let generate_def state def =
         let next_transition = Llvm.append_block context ("post." ^ (string_of_int transition.tid)) f in
 
         (* Find pending messages *)
-        let (bb,msgs) = (bb, []) |> List.fold_right (fun (name, _) (bb,msgs) ->
+        let (bb,msgs) = List.fold_right transition.pattern ~f:(fun (name, _) (bb,msgs) ->
           if name = c.name then (
             bb, (name,new_msg,this_impl)::msgs
           ) else (
@@ -513,9 +515,9 @@ let generate_def state def =
             
             (Llvm.builder_at_end context next_chan, (name,msg,impl)::msgs)
           )
-        ) transition.pattern in
+        ) ~init:(bb, []) in
 
-        let (bb,_) = (bb,next_transition) |> List.fold_right (fun (name,msg,impl) (bb,prev_revert) ->
+        let (bb,_) = List.fold_right msgs ~f:(fun (name,msg,impl) (bb,prev_revert) ->
           let new_commit = Llvm.insert_block context ("post.commit." ^ (string_of_int transition.tid) ^ "." ^ name) next_transition in
           let new_revert = Llvm.insert_block context ("revert." ^ (string_of_int transition.tid) ^ "." ^ name) next_transition in
 
@@ -530,24 +532,24 @@ let generate_def state def =
           end;
 
           (Llvm.builder_at_end context new_commit, new_revert)
-        ) msgs in
+        ) ~init:(bb, next_transition) in
 
         (* Complete block that deals with success. *)
-        let data = List.map (fun (name,msg,impl) ->
+        let data = List.map msgs (fun (name,msg,impl) ->
           impl.Runtime.slow_consume msg "" bb |> ignore;
           if name = c.name then
             value
           else
             let ptr = impl.Runtime.slow_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
             Llvm.build_load ptr ("data." ^ (string_of_int transition.tid) ^ "." ^ name) bb
-        ) msgs in
+        ) in
 
         Llvm.build_call build (Array.of_list (worker::inst::data)) "" bb |> ignore;
         Llvm.build_ret_void bb |> ignore;
 
         (* Pass next_transition block for the next transition (or end of loop if this is the last) *)
         Llvm.builder_at_end context next_transition
-      ) (List.filter (fun (t,b) -> List.mem c.name (List.map fst t.pattern)) compiled_transitions) in
+      ) (List.filter compiled_transitions (fun (t,b) -> List.mem (List.map t.pattern fst) c.name)) in
 
       (* Loop Footer Condition: Are we meant to retry? *)
       let retry_value = Llvm.build_load retry "retry_value" bb in
@@ -555,14 +557,14 @@ let generate_def state def =
       Llvm.build_cond_br retry_check exit loop bb |> ignore
     (* Channels where pattern matching is not required *)
     end else begin
-      let (transition,build) = List.find (fun (t,b) -> (List.map fst t.pattern) = [ c.name ]) compiled_transitions in
+      let (transition,build) = List.find_exn compiled_transitions ~f:(fun (t,b) -> (List.map t.pattern fst) = [ c.name ]) in
       Llvm.build_call build [| worker; inst; value |] "" bb |> ignore;
       Llvm.build_ret_void bb |> ignore
     end
   in
 
   (* Actual produce emit and construct function bodies *)
-  List.iter (fun c ->
+  List.iter def.channels (fun c ->
     (* Construtors (worker, value): check for fast mode, allocate instance on heap, initialise channels then build body *)
     if c.constructor then      
       let f         = SMap.find c.name slow_state.constructors in
@@ -607,7 +609,7 @@ let generate_def state def =
       ) slow_channels in
 
       generate_slow_emit f c inst channels (Llvm.param f 2) bb
-  ) def.channels
+  )
 
 let generate_externs (name, ts, kt) state =
   (* TODO: these should probably all be queued up as matches to keep with the parallel ethos *)
@@ -615,7 +617,7 @@ let generate_externs (name, ts, kt) state =
   (* Return with Value Case *)
   | Type.Return(result_type) -> 
       (* External Function Declaration *)
-      let func_type = Llvm.function_type (state.types result_type) (Array.of_list (List.map (state.types) ts)) in
+      let func_type = Llvm.function_type (state.types result_type) (Array.of_list (List.map ts (state.types))) in
       let func      = Llvm.declare_function name func_type llmod in
       (* Emit Function *)
       let chan_type = Typegen.structure state.types (ts @ [Type.Channel([result_type])]) in
@@ -639,7 +641,7 @@ let generate_externs (name, ts, kt) state =
   (* Return without Value Case *)
   | Type.Void ->
       (* External Function Declaration *)
-      let func_type = Llvm.function_type void_type (Array.of_list (List.map (state.types) ts)) in
+      let func_type = Llvm.function_type void_type (Array.of_list (List.map ts state.types)) in
       let func      = Llvm.declare_function name func_type llmod in
       (* Emit Function *)
       let chan_type = Typegen.structure state.types (ts @ [Type.Channel([])]) in
@@ -665,6 +667,6 @@ let generate_externs (name, ts, kt) state =
 
 let generate_module p =
   let state = { types=Typegen.generate p.named_types; values=SMap.empty; blocks=SMap.empty; undef=SMap.empty; constructors=SMap.empty; constants=SMap.empty } |> fold generate_externs p.externs in
-  List.iter (generate_def state) p.definitions;
+  List.iter p.definitions (generate_def state);
   Llvm.dump_module llmod; (* Useful for debugging *)
   llmod
