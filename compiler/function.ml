@@ -3,7 +3,8 @@
  * Copyright 2014      Peter Calvert <peter.calvert@cl.cam.ac.uk>
  *                     University of Cambridge Computer Laboratory            *)
 
-let fastcc = Llvm.CallConv.fast
+let fastcc = try  int_of_string (Sys.getenv "DOVETAIL_CALLCONV")
+             with _ -> Llvm.CallConv.fast
 
 let inlined f = 
   Llvm.add_function_attr f Llvm.Attribute.Nounwind;
