@@ -35,7 +35,7 @@
 /*
  * Cell for status and either value or pointer to value.
  */
-typedef struct {
+typedef volatile struct {
   uint32_t  status;
   char      pad[PAD(sizeof(uint32_t),sizeof(void*))];
 } cell_t;
@@ -46,7 +46,7 @@ bool llvm_cas_ptr(cell_t **, cell_t *, cell_t *);
 /*
  * Wrapper for cell. This indirection is required to prevent the ABA problem.
  */
-typedef struct {
+typedef volatile struct {
   cell_t   *cell;
 } queue_t;
 

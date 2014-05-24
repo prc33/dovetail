@@ -43,14 +43,14 @@ struct node {
   uint32_t      dummy;// for alignment purposes
 };
 
-typedef struct node node_t;
+typedef volatile struct node node_t;
 
 bool llvm_cas_ptr(node_t **, node_t *, node_t *);
 
 /*
  * Queue along with list of associated transitions.
  */
-typedef struct {
+typedef volatile struct {
   struct node  *head;
   struct node  *tail;
 } queue_t;
@@ -59,7 +59,7 @@ typedef struct {
  * Creates a new queue with a single 'dummy' node.
  */
 __attribute__((always_inline)) void slow_queue_init(queue_t *queue, size_t size) {
-  // Note that GC_MALLOC zeroes memory, so sentinel node doesn't need further setup.
+  // Note that GC_MALLOC zeroes memory, so sentinel node doesn't need further setup (CONSUMED must be 0).
   queue->head = (node_t *) GC_MALLOC(sizeof(node_t));
   queue->tail = queue->head;
 

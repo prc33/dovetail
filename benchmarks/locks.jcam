@@ -1,11 +1,10 @@
 ;%fun = type ((i8))
-@print.int = extern (i32) -> i32
 
 definition {
   channel @create_lock((((i8)),((i8))))   functional
   channel %acquire((i8))
-  channel %release((i8))              functional
-  channel %available(i8)              cell
+  channel %release((i8))                  functional
+  channel %available(i8)                  cell
 
   transition @create_lock((((i8)), ((i8))) %k) {
     emit %available(i8 0)
@@ -29,7 +28,6 @@ definition {
   channel @create_async_barrier(i32, (i32), ((i8))) functional
   channel %state(i32, (i32))                        mem
   channel %inc(i8)
-  channel %foo(i32) mem
 
   transition @create_async_barrier(i32 %count, (i32) %cont, ((i8)) %k) {
     emit %state(i32 %count, (i32) %cont)
@@ -38,7 +36,6 @@ definition {
   }
 
   transition %state(i32 %count, (i32) %cont) %inc(i8 %dummy) {
-    emit @print.int(i32 42, (i32) %foo)
     %count_m1 = add i32 %count, -1
     %done = cmp eq i32 %count_m1, 0
     br %done, label %end, label %next
@@ -56,12 +53,11 @@ definition {
 definition {
   channel @create_worker(((i8)), ((i8)), (i8))    functional
   channel %values(i32, ((i8)), ((i8)), (i8))      mem
-  channel %step1(i8)                          cell
-  channel %step2(i8)                          cell
-  channel %foo(i32) mem
+  channel %step1(i8)                              cell
+  channel %step2(i8)                              cell
 
   transition @create_worker(((i8)) %acquire, ((i8)) %release, (i8) %k) {
-    emit %values(i32 1000, ((i8)) %acquire, ((i8)) %release, (i8) %k)
+    emit %values(i32 1000000, ((i8)) %acquire, ((i8)) %release, (i8) %k)
     emit %step1(i8 0)
     finish
   }
@@ -81,7 +77,6 @@ definition {
   }
 
   transition %values(i32 %count, ((i8)) %acquire, ((i8)) %release, (i8) %k) %step2(i8 %dummy) {
-    emit @print.int(i32 %count, (i32) %foo)
     %count_m1 = add i32 %count, -1
     emit %values(i32 %count_m1, ((i8)) %acquire, ((i8)) %release, (i8) %k)
     emit %release((i8) %step1)
@@ -90,11 +85,11 @@ definition {
 }
 
 definition {
-  channel @main(i32, (i32))                   functional
-  channel %barrier((i8))                      cell
+  channel @main(i32, (i32))                       functional
+  channel %barrier((i8))                          cell
   channel %lock(((i8)), ((i8)))                   cell
   channel %to_create(i32, ((i8)), ((i8)), (i8))   functional
-  channel %tmp(i32)                           cell
+  channel %tmp(i32)                               cell
 
   transition @main(i32 %n, (i32) %k) {
     emit %tmp(i32 %n)

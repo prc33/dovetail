@@ -51,7 +51,7 @@
  * Reasonable default for size of matching structure.
  */
 #ifndef MATCH_SIZE
-  #define MATCH_SIZE 64
+  #define MATCH_SIZE 128
 #endif
 
 typedef struct {
