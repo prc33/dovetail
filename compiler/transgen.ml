@@ -6,6 +6,9 @@
 open Jcam
 open Core.Std
 
+exception Undef_Var of string
+exception Undef_Const of string
+
 let fold  f l s = List.fold_left l ~init:s ~f:(fun s x -> f x s)
 let foldi f l s = snd (List.fold_left l ~init:(0,s) ~f:(fun (i,s) x -> (i+1, f (i,x) s)))
 
@@ -51,10 +54,10 @@ let init_state f = fold (fun b state -> (match b.label with
 
 let generate_block f instance block state =
   let value t v s = match v with
-    | Value.Var(v)      -> Map.find_exn s.values v
+    | Value.Var(v)      -> (match Map.find s.values v with Some x -> x | None -> raise (Undef_Var v))
     | Value.Integer(x)  -> Llvm.const_int t x
     | Value.Float(x)    -> Llvm.const_float t x
-    | Value.Constant(v) -> Map.find_exn s.constants v
+    | Value.Constant(v) -> (match Map.find s.constants v with Some x -> x | None -> raise (Undef_Const v))
     | Value.Null        -> Llvm.const_null t
   in
 

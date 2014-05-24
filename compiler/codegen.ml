@@ -117,7 +117,7 @@ let compile_program p =
     in
 
     (* Fast version of definition (keeping construct functions for use in slow version) *)
-    if List.mem def.dattrs DAttribute.Closed then
+    if List.mem def.dattrs DAttribute.Closed then begin
       let fast_instance = Llvm.named_struct_type context ("instance.fast." ^ string_of_int def.did) in
       let fast_channels = make_channels Runtime.fast_channel fast_instance in
 
@@ -220,7 +220,8 @@ let compile_program p =
           ) in
 
           generate_fast_emit f c inst channels (Llvm.param f 2) bb true
-      );
+      )
+    end;
 
     (* Slow version of definition *)
     let slow_instance = Llvm.named_struct_type context ("instance.slow." ^ string_of_int def.did) in
