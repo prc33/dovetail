@@ -201,7 +201,7 @@ __attribute__((always_inline)) match_t *match_steal(worker_t *self, match_t *des
 
   int b = llvm_atomic_load_acquire(&self->bottom);
 
-  if(t < b) {
+  if(t < b - 1) {
     memcpy(dest, &(self->array[t & (WORK_LIMIT - 1)]), sizeof(match_t));
 
     if(!llvm_cas(&self->top, t, t + 1)) {
