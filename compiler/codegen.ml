@@ -132,9 +132,9 @@ let compile_program p =
         (* Worker structure (always first parameter) *)
         let worker = Llvm.param f 0 in
 
-        match Map.find fast_channels c.name with
+        match Map.find channels c.name with
         (* Normal Channels *)
-        | Some (_,this_impl) ->
+        | Some this_chan ->
           (* This pattern matching can be forgotten for lower_bound=upper_bound, head channels (as the enqueue in those cases does not change anything) *)
           let upperbound = List.find_map c.cattrs (function CAttribute.UpperBound x -> Some x | _ -> None) in
           let lowerbound = List.find_map c.cattrs (function CAttribute.LowerBound x -> Some x | _ -> None) in
@@ -152,25 +152,25 @@ let compile_program p =
             (* Find pending messages *)
             let (bb,msgs) = List.fold_right transition.pattern ~f:(fun (name, _) (bb,msgs) ->
               if name = c.name then (
-                bb, (name,value,this_impl)::msgs (* for the current channel we simply use the value passed in, message is only enqueued in case of no match *)
+                bb, (name,value,this_chan)::msgs (* for the current channel we simply use the value passed in, message is only enqueued in case of no match *)
               ) else (
-                let (_,impl)  = Map.find_exn fast_channels name in
+                let chan      = Map.find_exn channels name in
                 let next_chan = Llvm.append_block context ("post.find." ^ (string_of_int transition.tid) ^ "." ^ name) f in
-                let msg       = impl.Runtime.fast_find (Map.find_exn channels name) ("msg." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
+                let msg       = chan.Runtime.fast_find ("msg." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
                 let check     = cmp_null msg ("fcheck." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
                 Llvm.build_cond_br check next_transition next_chan bb |> ignore;
                 
-                (Llvm.builder_at_end context next_chan, (name,msg,impl)::msgs)
+                (Llvm.builder_at_end context next_chan, (name,msg,chan)::msgs)
               )
             ) ~init:(bb, []) in
 
             (* Deal with success. *)
-            let data = List.map msgs (fun (name,msg,impl) ->
+            let data = List.map msgs (fun (name,msg,chan) ->
               if name = c.name then (
                 value
               ) else (
-                impl.Runtime.fast_consume (Map.find_exn channels name) msg "" bb |> ignore;
-                let ptr = impl.Runtime.fast_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
+                chan.Runtime.fast_consume msg bb;
+                let ptr = chan.Runtime.fast_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
                 Llvm.build_load ptr ("data." ^ (string_of_int transition.tid) ^ "." ^ name) bb
               )
             ) in
@@ -183,7 +183,7 @@ let compile_program p =
           ) transitions_to_check in
 
           (* After all transitions fail, actually enqueue message. *)
-          this_impl.Runtime.fast_enqueue (Map.find_exn channels c.name) value ("msg." ^ c.name) bb |> ignore;
+          this_chan.Runtime.fast_enqueue value ("msg." ^ c.name) bb |> ignore;
           Llvm.build_ret_void bb |> ignore
         (* Channels where pattern matching is not required *)
         | None ->
@@ -201,10 +201,9 @@ let compile_program p =
           let inst = Llvm.build_alloca fast_instance "inst" bb in
           
           let channels = Map.mapi fast_channels (fun ~key ~data:(i,impl) ->
-            let raw_ptr = Llvm.build_struct_gep inst i (key ^ ".raw") bb in
-            let ptr     = impl.Runtime.fast_build_cast raw_ptr key bb in
-            impl.Runtime.fast_init ptr "" bb |> ignore;
-            ptr
+            let chan = impl (Llvm.build_struct_gep inst i (key ^ ".raw") bb) key bb in
+            chan.Runtime.fast_init bb;
+            chan
           ) in
 
           generate_fast_emit f c inst channels (Llvm.param f 1) bb false
@@ -215,8 +214,7 @@ let compile_program p =
           let inst = Llvm.build_bitcast (Llvm.param f 1) (Llvm.pointer_type fast_instance) "inst" bb in
 
           let channels = Map.mapi fast_channels (fun ~key ~data:(i,impl) ->
-            let raw_ptr = Llvm.build_struct_gep inst i (key ^ ".raw") bb in
-            impl.Runtime.fast_build_cast raw_ptr key bb
+            impl (Llvm.build_struct_gep inst i (key ^ ".raw") bb) key bb
           ) in
 
           generate_fast_emit f c inst channels (Llvm.param f 2) bb true
@@ -238,13 +236,13 @@ let compile_program p =
       (* Worker structure (always first parameter) *)
       let worker = Llvm.param f 0 in
 
-      match Map.find slow_channels c.name with
+      match Map.find channels c.name with
       (* Normal Channels *)
-      Some (_, this_impl) ->
+      Some this_chan ->
         let retry_false = Llvm.const_int (Llvm.i8_type context) 0 in
 
         (* Enqueuing of new message *)
-        let new_msg = this_impl.Runtime.slow_enqueue (Map.find_exn channels c.name) value ("msg." ^ c.name) bb in
+        let new_msg = this_chan.Runtime.slow_enqueue value ("msg." ^ c.name) bb in
 
         (* Allocate retry flag *)
         let retry = Llvm.build_alloca (Llvm.i8_type context) "retry" bb in
@@ -263,7 +261,7 @@ let compile_program p =
         (* Loop Header Condition: Is new message consumed? *)
         let loop_bb = Llvm.builder_at_end context loop in begin
           Llvm.build_cond_br
-            (this_impl.Runtime.slow_is_consumed new_msg "consumed" loop_bb)
+            (this_chan.Runtime.slow_is_consumed new_msg "consumed" loop_bb)
             exit
             body
             loop_bb
@@ -281,29 +279,29 @@ let compile_program p =
           (* Find pending messages *)
           let (bb,msgs) = List.fold_right transition.pattern ~f:(fun (name, _) (bb,msgs) ->
             if name = c.name then (
-              bb, (name,new_msg,this_impl)::msgs
+              bb, (name,new_msg,this_chan)::msgs
             ) else (
-              let (_,impl)  = Map.find_exn slow_channels name in
+              let chan      = Map.find_exn channels name in
               let next_chan = Llvm.insert_block context ("post.find." ^ (string_of_int transition.tid) ^ "." ^ name) next_transition in
-              let msg       = impl.Runtime.slow_find (Map.find_exn channels name) retry ("msg." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
+              let msg       = chan.Runtime.slow_find retry ("msg." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
               let check     = cmp_null msg ("fcheck." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
               Llvm.build_cond_br check next_transition next_chan bb |> ignore;
               
-              (Llvm.builder_at_end context next_chan, (name,msg,impl)::msgs)
+              (Llvm.builder_at_end context next_chan, (name,msg,chan)::msgs)
             )
           ) ~init:(bb, []) in
 
-          let (bb,_) = List.fold_right msgs ~f:(fun (name,msg,impl) (bb,prev_revert) ->
+          let (bb,_) = List.fold_right msgs ~f:(fun (name,msg,chan) (bb,prev_revert) ->
             let new_commit = Llvm.insert_block context ("post.commit." ^ (string_of_int transition.tid) ^ "." ^ name) next_transition in
             let new_revert = Llvm.insert_block context ("revert." ^ (string_of_int transition.tid) ^ "." ^ name) next_transition in
 
             (* Try to claim message *)
-            let check = impl.Runtime.slow_try_claim msg ("ccheck." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
+            let check = chan.Runtime.slow_try_claim msg ("ccheck." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
             Llvm.build_cond_br check new_commit prev_revert bb |> ignore;
 
             (* Reverts claimed message to pending in case of failed commit - chains with previous reverts *)
             let revert_bb = Llvm.builder_at_end context new_revert in begin
-              impl.Runtime.slow_revert msg "" revert_bb |> ignore;
+              chan.Runtime.slow_revert msg revert_bb;
               Llvm.build_br prev_revert revert_bb |> ignore
             end;
 
@@ -311,12 +309,12 @@ let compile_program p =
           ) ~init:(bb, next_transition) in
 
           (* Complete block that deals with success. *)
-          let data = List.map msgs (fun (name,msg,impl) ->
-            impl.Runtime.slow_consume msg "" bb |> ignore;
+          let data = List.map msgs (fun (name,msg,chan) ->
+            chan.Runtime.slow_consume msg bb;
             if name = c.name then
               value
             else
-              let ptr = impl.Runtime.slow_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
+              let ptr = chan.Runtime.slow_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
               Llvm.build_load ptr ("data." ^ (string_of_int transition.tid) ^ "." ^ name) bb
           ) in
 
@@ -368,10 +366,9 @@ let compile_program p =
         let inst = Llvm.build_call (Runtime.malloc slow_instance) [| Llvm.size_of slow_instance |] "inst" bb in
         
         let channels = Map.mapi slow_channels (fun ~key ~data:(i,impl) ->
-          let raw_ptr = Llvm.build_struct_gep inst i (key ^ ".raw") bb in
-          let ptr     = impl.Runtime.slow_build_cast raw_ptr key bb in
-          impl.Runtime.slow_init ptr "" bb |> ignore;
-          ptr
+          let chan = impl (Llvm.build_struct_gep inst i (key ^ ".raw") bb) key bb in
+          chan.Runtime.slow_init bb;
+          chan
         ) in
 
         generate_slow_emit f c inst channels (Llvm.param f 1) bb
@@ -382,8 +379,7 @@ let compile_program p =
         let inst = Llvm.build_bitcast (Llvm.param f 1) (Llvm.pointer_type slow_instance) "inst" bb in
 
         let channels = Map.mapi slow_channels (fun ~key ~data:(i,impl) ->
-          let raw_ptr = Llvm.build_struct_gep inst i (key ^ ".raw") bb in
-          impl.Runtime.slow_build_cast raw_ptr key bb
+          impl (Llvm.build_struct_gep inst i (key ^ ".raw") bb) key bb
         ) in
 
         generate_slow_emit f c inst channels (Llvm.param f 2) bb

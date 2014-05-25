@@ -91,7 +91,7 @@ __attribute__((always_inline)) node_t *slow_queue_allocate(queue_t *queue, size_
 /*
  * Returns the data pointer for this node.
  */
-__attribute__((always_inline)) void *slow_queue_data(node_t *node, size_t size) {
+__attribute__((always_inline)) void *slow_queue_data(queue_t *queue, node_t *node) {
   return node + 1;
 }
 
@@ -125,7 +125,7 @@ __attribute__((always_inline)) void slow_queue_enqueue(queue_t *queue, node_t *n
 /*
  * Checks whether the given message has been used up.
  */
-__attribute__((always_inline)) bool slow_queue_is_consumed(node_t *node) {
+__attribute__((always_inline)) bool slow_queue_is_consumed(queue_t *queue, node_t *node) {
   return (node->status == CONSUMED);
 }
 
@@ -190,14 +190,14 @@ __attribute__((always_inline)) void *slow_queue_find(queue_t *queue, bool *retry
 /*
  * Tries to claim the given message.
  */
-__attribute__((always_inline)) bool slow_queue_try_claim(node_t *node) {
+__attribute__((always_inline)) bool slow_queue_try_claim(queue_t *queue, node_t *node) {
   return llvm_cas(&node->status, PENDING, CLAIMED);
 }
 
 /*
  * Reverts a claimed message to pending.
  */
-__attribute__((always_inline)) void slow_queue_revert(node_t *node) {
+__attribute__((always_inline)) void slow_queue_revert(queue_t *queue, node_t *node) {
   node->status = PENDING;
 }
 
@@ -205,7 +205,7 @@ __attribute__((always_inline)) void slow_queue_revert(node_t *node) {
 /*
  * Reverts a claimed message to pending.
  */
-__attribute__((always_inline)) void slow_queue_consume(node_t *node) {
+__attribute__((always_inline)) void slow_queue_consume(queue_t *queue, node_t *node) {
   node->status = CONSUMED;
 }
 

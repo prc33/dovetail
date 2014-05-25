@@ -33,113 +33,106 @@
 #define CLAIMED   2
 
 /*
- * Cell for status and either value or pointer to value.
+ * Cell version of a queue. The version is used to prevent the ABA problem occuring.
  */
 typedef volatile struct {
-  uint32_t  status;
-  char      pad[PAD(sizeof(uint32_t),sizeof(void*))];
-} cell_t;
-
-void llvm_atomic_store_ptr(cell_t **, cell_t *);
-bool llvm_cas_ptr(cell_t **, cell_t *, cell_t *);
-
-/*
- * Wrapper for cell. This indirection is required to prevent the ABA problem.
- */
-typedef volatile struct {
-  cell_t   *cell;
+  union {
+    void *value;
+    struct {
+      uint32_t version;
+      uint32_t status;
+    };
+  };
 } queue_t;
+
+bool llvm_cas_ptr(void **, void *, void *);
 
 /*
  * Creates a new queue with no cell yet attached.
  */
 __attribute__((always_inline)) void slow_cell_init(queue_t *queue, size_t size) {
-  // Not required as instance allocated with GC_MALLOC which zeroes memory.
-  //queue->cell = NULL;
+  // Not required as instance allocated with GC_MALLOC which zeroes memory
+  // queue->version = 0;
+  // queue->status  = CONSUMED;
 }
 
 /*
- * Returns a memory address for a cell.
+ * Returns the new version for the cell.
  */
-__attribute__((always_inline)) cell_t *slow_cell_allocate(queue_t *queue, size_t size) {
-  // Note that GC_MALLOC zeroes memory.
-  cell_t *cell = (cell_t *) GC_MALLOC(sizeof(cell_t) + size);
-
-  if(cell == NULL) {
-    fprintf(stderr, "Out of memory (slow_cell_allocate)\n");
-    exit(-1);
-  }
-  
-  cell->status = PENDING;
-
-  return cell;
+__attribute__((always_inline)) int32_t slow_cell_allocate(queue_t *queue, size_t size) {
+  return queue->version + 1;
 }
 
 /*
  * Returns the address within the cell that should be used for data.
  */
-__attribute__((always_inline)) void *slow_cell_data(cell_t *cell, size_t size) {
-  return cell + 1;
+__attribute__((always_inline)) void *slow_cell_data(queue_t *queue, int32_t version) {
+  return queue + 1;
 }
 
 /*
- * Enqueues the given cell. This most only be performed on an empty cell
+ * Enqueues the given cell. This must only be performed on an empty cell
  * otherwise the existing value is overwritten.
  */
-__attribute__((always_inline)) void slow_cell_enqueue(queue_t *queue, cell_t *cell) {
-  queue->cell = cell;
+__attribute__((always_inline)) void slow_cell_enqueue(queue_t *queue, int32_t version) {// count=snapshot (assert snapshot=count+1), set as pending
+  // asset queue.version == version - 1
+  queue->version = version;
+  queue->status = PENDING;
 }
 
 /*
  * If the cell is still pending, this becomes the identity function. Otherwise it
  * returns NULL (setting retry to true if in the claimed state).
  */
-__attribute__((always_inline)) cell_t *slow_cell_find(queue_t *queue, bool *retry) {
-  cell_t *cell = queue->cell;
-
-  if(cell == NULL) {
-    return NULL;
-  }
-
-  switch(cell->status) {
-    case PENDING:
-      return cell;
-    case CLAIMED:
-      *retry = true;
-      return NULL;
-    // If cell is consumed, try to stop future checks from doing this indirection.
-    // It doesn't matter if the CAS fails, as that only occurs with another enqueue.
-    case CONSUMED:
-      llvm_cas_ptr(&queue->cell, cell, NULL);
-    default:
-      return NULL;
+__attribute__((always_inline)) int32_t slow_cell_find(queue_t *queue, bool *retry) {
+  while(true) {
+    int32_t version = queue->version;
+    int32_t status = queue->status;
+ 
+    // Make sure we get a consistent read.
+    if(version == queue->version) {
+      switch(queue->status) {
+        case PENDING:
+          return version;
+        case CLAIMED:
+          *retry = true;
+          return NULL;
+        case CONSUMED:
+        default:
+          return NULL;
+      }
+    }
   }
 }
 
 /*
  * Tries to claim the given message.
  */
-__attribute__((always_inline)) bool slow_cell_try_claim(cell_t *cell) {
-  return llvm_cas(&cell->status, PENDING, CLAIMED);
+__attribute__((always_inline)) bool slow_cell_try_claim(queue_t *queue, int32_t version) {
+  queue_t old = (queue_t) { .version = version, .status = PENDING };
+  queue_t new = (queue_t) { .version = version, .status = CLAIMED };
+
+  return llvm_cas(&queue->value, old.value, new.value);
 }
 
 /*
  * Reverts a claimed message to pending.
  */
-__attribute__((always_inline)) void slow_cell_revert(cell_t *cell) {
-  cell->status = PENDING;
+__attribute__((always_inline)) void slow_cell_revert(queue_t *queue, int32_t version) {
+  queue->status = PENDING; // assert version == version
 }
 
 /*
  * Marks the cell as empty.
  */
-__attribute__((always_inline)) void slow_cell_consume(cell_t *cell) {
-  cell->status = CONSUMED;
+__attribute__((always_inline)) void slow_cell_consume(queue_t *queue, int32_t version) {
+  queue->status = CONSUMED; // assert version == version
 }
 
 /*
  * Checks whether the given message has been used up.
  */
-__attribute__((always_inline)) bool slow_cell_is_consumed(cell_t *cell) {
-  return (cell->status == CONSUMED);
+__attribute__((always_inline)) bool slow_cell_is_consumed(queue_t *queue, int32_t version) {
+  // Double check ensures consistent read.
+  return (queue->version != version) || (queue->status == CONSUMED) || (queue->version != version);
 }

@@ -58,7 +58,7 @@ __attribute__((always_inline)) cell_t *fast_cell_allocate(cell_t *cell, size_t s
 /*
  * Returns the address within the cell that should be used for data.
  */
-__attribute__((always_inline)) void *fast_cell_data(cell_t *cell, size_t size) {
+__attribute__((always_inline)) void *fast_cell_data(cell_t *cell, cell_t *cell_dup) {
   return cell + 1;
 }
 

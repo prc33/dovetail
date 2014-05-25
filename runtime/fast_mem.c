@@ -47,7 +47,7 @@ __attribute__((always_inline)) void *fast_mem_allocate(void *ptr, size_t size) {
 /*
  * Returns the address of the memory location (i.e. identity)
  */
-__attribute__((always_inline)) void *fast_mem_data(void *ptr, size_t size) {
+__attribute__((always_inline)) void *fast_mem_data(void *ptr, void *ptr_dup) {
   return ptr;
 }
 

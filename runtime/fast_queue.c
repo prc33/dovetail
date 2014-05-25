@@ -45,7 +45,7 @@ __attribute__((always_inline)) void *fast_queue_allocate(queue_t *queue, size_t 
   return queue->top;
 }
 
-__attribute__((always_inline)) void *fast_queue_data(void *msg, size_t size) {
+__attribute__((always_inline)) void *fast_queue_data(queue_t *queue, void *msg) {
   return msg;
 }
 
