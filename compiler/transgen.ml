@@ -169,9 +169,7 @@ let generate_block f instance block state =
     | Instruction.Construct(c,ps) ->
         let msg  = Llvm.undef (Typegen.structure s.types (List.map ps (fun (t,v) -> t))) |>
                    foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (s.types t) v s) i "" bb) ps in
-        let call = Llvm.build_call (Map.find_exn s.constructors c) [| worker; msg |] "" bb in
-        Llvm.set_instruction_call_conv Function.fastcc call;
-        Llvm.set_tail_call true call;
+        Function.fast_call (Map.find_exn s.constructors c) [| worker; msg |] "" true bb |> ignore;
         s
     (* Message Emissions *)
     | Instruction.Emit(v,ps) ->
@@ -180,9 +178,7 @@ let generate_block f instance block state =
         let inst    = Llvm.build_extractvalue channel 1 "" bb in
         let msg     = Llvm.undef (Typegen.structure s.types (List.map ps (fun (t,v) -> t))) |>
                       foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (s.types t) v s) i "" bb) ps in
-        let call    = Llvm.build_call func [| worker; inst; msg |] "" bb in
-        Llvm.set_instruction_call_conv Function.fastcc call;
-        Llvm.set_tail_call true call;
+        Function.fast_call func [| worker; inst; msg |] "" true bb |> ignore;
         s
   ) block.instrs in
 

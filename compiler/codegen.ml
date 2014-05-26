@@ -58,9 +58,7 @@ let compile_program p =
         let k_func    = Llvm.build_extractvalue channel 0 "k_func" bb in
         let k_inst    = Llvm.build_extractvalue channel 1 "k_inst" bb in
         let msg_out   = Llvm.build_insertvalue (Llvm.undef (Typegen.structure types [ result_type ])) result 0 "msg" bb in
-        let call      = Llvm.build_call k_func [| (Llvm.param emit 0); k_inst; msg_out |] "" bb in
-        Llvm.set_instruction_call_conv Function.fastcc call;
-        Llvm.set_tail_call true call;
+        Function.fast_call k_func [| (Llvm.param emit 0); k_inst; msg_out |] "" true bb |> ignore;
         Llvm.build_ret_void bb |> ignore;
         Map.add constants name (Llvm.const_struct context [| emit; Llvm.const_null Runtime.instance_t |])
     (* Return without Value Case *)
@@ -82,9 +80,7 @@ let compile_program p =
         let k_func    = Llvm.build_extractvalue channel 0 "k_func" bb in
         let k_inst    = Llvm.build_extractvalue channel 1 "k_inst" bb in
         let msg_out   = Llvm.const_struct context [| |] in
-        let call      = Llvm.build_call k_func [| (Llvm.param emit 0); k_inst; msg_out |] "" bb in
-        Llvm.set_instruction_call_conv Function.fastcc call;
-        Llvm.set_tail_call true call;
+        Function.fast_call k_func [| (Llvm.param emit 0); k_inst; msg_out |] "" true bb |> ignore;
         Llvm.build_ret_void bb |> ignore;
         Map.add constants name (Llvm.const_struct context [| emit; Llvm.const_null Runtime.instance_t |])
     (* TODO: Async case *)
@@ -175,7 +171,7 @@ let compile_program p =
               )
             ) in
 
-            Llvm.build_call func (Array.of_list (worker::inst::data)) "" bb |> Llvm.set_tail_call tail_call;
+            Llvm.build_call func (Array.of_list (worker::inst::data)) "" bb |> Llvm.set_tail_call (tail_call && Function.tailcalls);
             Llvm.build_ret_void bb |> ignore;
 
             (* Pass next_transition block for the next transition (or end of loop if this is the last) *)
@@ -188,7 +184,7 @@ let compile_program p =
         (* Channels where pattern matching is not required *)
         | None ->
           let (transition,func) = List.find_exn compiled_transitions ~f:(fun (t,b) -> (List.map t.pattern fst) = [ c.name ]) in
-          Llvm.build_call func [| worker; inst; value |] "" bb |> Llvm.set_tail_call tail_call;
+          Llvm.build_call func [| worker; inst; value |] "" bb |> Llvm.set_tail_call (tail_call && Function.tailcalls);
           Llvm.build_ret_void bb |> ignore
       in
 
@@ -352,9 +348,7 @@ let compile_program p =
           Llvm.build_cond_br check fast_mode slow_mode bb |> ignore;
 
           let bb = Llvm.builder_at_end context fast_mode in
-          let call = Llvm.build_call fast_constructor (Llvm.params f) "" bb in
-          Llvm.set_instruction_call_conv Function.fastcc call;
-          Llvm.set_tail_call true call;
+          Function.fast_call fast_constructor (Llvm.params f) "" true bb |> ignore;
           Llvm.build_ret_void bb |> ignore
         (* Only slow mode *)
         | None ->
@@ -401,8 +395,6 @@ let compile_program p =
     let bb = Llvm.builder_at_end context (Llvm.entry_block main) in
     let msg = Llvm.const_struct context [| make_int 0; Llvm.const_struct context [| emit_end; Llvm.const_null Runtime.instance_t |] |] in
     let msg = Llvm.build_insertvalue msg (Llvm.param main 1) 0 "msg" bb in
-    let call = Llvm.build_call (Map.find_exn slow_constructors "main") [| Llvm.param main 0; msg |] "" bb in
-    Llvm.set_instruction_call_conv Function.fastcc call;
-    Llvm.set_tail_call true call;
+    Function.fast_call (Map.find_exn slow_constructors "main") [| Llvm.param main 0; msg |] "" true bb;
     Llvm.build_ret_void bb |> ignore
   end

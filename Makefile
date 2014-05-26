@@ -37,7 +37,9 @@ clean:
 	rm -Rf $(BIN)
 
 clean-benchmarks:
-	rm $(BM_EXEC)
+	rm -Rf $(BUILD)/benchmarks
+	rm -f $(BM_EXEC)
+	mkdir $(BUILD)/benchmarks
 
 $(BIN):
 	mkdir $(BIN)

@@ -27,9 +27,7 @@ let trampoline = Function.inlined "worker_trampoline" transition_t in begin
   let bb = Llvm.builder_at_end context (Llvm.entry_block trampoline) in
   let f_ptr = Llvm.build_struct_gep (Llvm.param trampoline 1) 0 "f.ptr" bb in
   let f = Llvm.build_load f_ptr "f" bb in
-  let call = Llvm.build_call f (Llvm.params trampoline) "" bb in
-  Llvm.set_instruction_call_conv Function.fastcc call;
-  Llvm.set_tail_call true call;
+  Function.fast_call f (Llvm.params trampoline) "" true bb |> ignore;
   Llvm.build_ret_void bb |> ignore
 end
 
