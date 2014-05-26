@@ -7,9 +7,9 @@ BOEHM	= ~/boehm
 WOOL	= ~/Desktop/wool-0.1.5alpha
 
 CLANG	= clang -g -S -I $(BOEHM)/include/ -O0 -emit-llvm
-LINK	= llvm-link-3.2
-OPT	= opt-3.2 -instcombine -std-compile-opts -std-link-opts -O3
-LLC	= llc-3.2 -O3
+LINK	= llvm-link-3.4
+OPT	= opt-3.4 -instcombine -std-compile-opts -std-link-opts -O3
+LLC	= llc-3.4 -O3
 ASM	= gcc
 LIBS	= -lpthread $(BOEHM)/lib/libgc.so
 JCAMC	= $(BIN)/jcamc
