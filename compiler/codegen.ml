@@ -386,4 +386,23 @@ let compile_program p =
     )
   in
 
-  List.iter p.definitions generate_def
+  List.iter p.definitions generate_def;
+
+  let main = Function.inlined "construct_main" (Llvm.function_type void_type [| Runtime.worker_t; Runtime.int_type |]) in begin
+    let emit_end = Function.fast "emit.end" (Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; Llvm.struct_type context [| Runtime.int_type |] |]) in
+
+    let end_bb = Llvm.builder_at_end context (Llvm.entry_block emit_end) in begin
+      let dovetail_end = Function.declare "dovetail_end" (Llvm.function_type void_type [| Runtime.int_type |]) in
+      let exit_code = Llvm.build_extractvalue (Llvm.param emit_end 2) 0 "exit_code" end_bb in
+      Llvm.build_call dovetail_end [| exit_code |] "" end_bb |> ignore;
+      Llvm.build_ret_void end_bb |> ignore
+    end;
+
+    let bb = Llvm.builder_at_end context (Llvm.entry_block main) in
+    let msg = Llvm.const_struct context [| make_int 0; Llvm.const_struct context [| emit_end; Llvm.const_null Runtime.instance_t |] |] in
+    let msg = Llvm.build_insertvalue msg (Llvm.param main 1) 0 "msg" bb in
+    let call = Llvm.build_call (Map.find_exn slow_constructors "main") [| Llvm.param main 0; msg |] "" bb in
+    Llvm.set_instruction_call_conv Function.fastcc call;
+    Llvm.set_tail_call true call;
+    Llvm.build_ret_void bb |> ignore
+  end

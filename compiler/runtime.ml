@@ -5,23 +5,25 @@
 
 let context = Llvm.global_context ()
 
-let opaque n = Llvm.pointer_type (Llvm.named_struct_type context n)
-
-let worker_t   = opaque "worker"
-let match_t    = opaque "match"
-let instance_t = opaque "instance"
-
 let void_type = Llvm.void_type context
 let bool_type = Llvm.i1_type context
 let int_type  = Llvm.i32_type context
 let size_type = Llvm.i64_type context
 let ptr_type  = Llvm.pointer_type (Llvm.i8_type context)
 
+let opaque n = Llvm.pointer_type (Llvm.named_struct_type context n)
+
+let worker_t   = opaque "worker"
+let match_t    = opaque "match"
+let instance_t = opaque "instance"
+
+let transition_t = Llvm.function_type void_type [| worker_t; match_t |]
+
+let () = Llvm.struct_set_body (Llvm.element_type match_t) [| Llvm.pointer_type transition_t; instance_t |] false
+
 let array_type t = Llvm.struct_type context [| int_type; Llvm.pointer_type t |]
 
-let trampoline_t = Llvm.function_type void_type [| worker_t; match_t |] in begin
-  Llvm.struct_set_body (Llvm.element_type match_t) [| Llvm.pointer_type trampoline_t; instance_t |] false;
-  let trampoline = Function.inlined "worker_trampoline" trampoline_t in
+let trampoline = Function.inlined "worker_trampoline" transition_t in begin
   let bb = Llvm.builder_at_end context (Llvm.entry_block trampoline) in
   let f_ptr = Llvm.build_struct_gep (Llvm.param trampoline 1) 0 "f.ptr" bb in
   let f = Llvm.build_load f_ptr "f" bb in
