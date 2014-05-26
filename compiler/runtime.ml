@@ -4,7 +4,6 @@
  *                     University of Cambridge Computer Laboratory            *)
 
 let context = Llvm.global_context ()
-let llmod = Llvm.create_module context "JCAM"
 
 let opaque n = Llvm.pointer_type (Llvm.named_struct_type context n)
 
@@ -20,8 +19,20 @@ let ptr_type  = Llvm.pointer_type (Llvm.i8_type context)
 
 let array_type t = Llvm.struct_type context [| int_type; Llvm.pointer_type t |]
 
+let trampoline_t = Llvm.function_type void_type [| worker_t; match_t |] in begin
+  Llvm.struct_set_body (Llvm.element_type match_t) [| Llvm.pointer_type trampoline_t; instance_t |] false;
+  let trampoline = Function.inlined "worker_trampoline" trampoline_t in
+  let bb = Llvm.builder_at_end context (Llvm.entry_block trampoline) in
+  let f_ptr = Llvm.build_struct_gep (Llvm.param trampoline 1) 0 "f.ptr" bb in
+  let f = Llvm.build_load f_ptr "f" bb in
+  let call = Llvm.build_call f (Llvm.params trampoline) "" bb in
+  Llvm.set_instruction_call_conv Function.fastcc call;
+  Llvm.set_tail_call true call;
+  Llvm.build_ret_void bb |> ignore
+end
+
 let malloc = 
-  let raw = Llvm.declare_function "GC_malloc" (Llvm.function_type ptr_type [| size_type |]) llmod in
+  let raw = Function.declare "GC_malloc" (Llvm.function_type ptr_type [| size_type |]) in
 (*  Llvm.add_function_attr raw Llvm.Attribute.Noalias; *)
   function t -> Llvm.const_bitcast raw (Llvm.pointer_type (Llvm.function_type (Llvm.pointer_type t) [| size_type |]))
 
@@ -29,23 +40,23 @@ let arrays_split =
   let func_type t =
     let arr_t = array_type t in
     Llvm.function_type void_type [| Llvm.pointer_type arr_t; arr_t; array_type int_type; size_type |] in
-  let raw = Llvm.declare_function "arrays_split" (func_type (Llvm.i8_type context)) llmod in
+  let raw = Function.declare "arrays_split" (func_type (Llvm.i8_type context)) in
   fun t -> Llvm.const_bitcast raw (Llvm.pointer_type (func_type t))
 
 let arrays_merge =
   let func_type t =
     let arr_t = array_type t in
     Llvm.function_type arr_t [| array_type arr_t; size_type |] in
-  let raw = Llvm.declare_function "arrays_merge" (func_type (Llvm.i8_type context)) llmod in
+  let raw = Function.declare "arrays_merge" (func_type (Llvm.i8_type context)) in
   fun t -> Llvm.const_bitcast raw (Llvm.pointer_type (func_type t))
 
 let match_alloc =
-  let raw = Llvm.declare_function "match_alloc" (Llvm.function_type match_t [| worker_t |]) llmod in
+  let raw = Function.declare "match_alloc" (Llvm.function_type match_t [| worker_t |]) in
   function t -> Llvm.const_bitcast raw (Llvm.pointer_type (Llvm.function_type (Llvm.pointer_type t) [| worker_t |]))
 
-let match_push = Llvm.declare_function "match_push" (Llvm.function_type void_type [| worker_t |]) llmod
+let match_push = Function.declare "match_push" (Llvm.function_type void_type [| worker_t |])
 
-let fast_check = Llvm.declare_function "dovetail_go_fast" (Llvm.function_type bool_type [| worker_t |]) llmod (* TODO: rename? *)
+let fast_check = Function.declare "dovetail_go_fast" (Llvm.function_type bool_type [| worker_t |]) (* TODO: rename? *)
 
 type slow_channel = {
   slow_init        : Llvm.llbuilder -> unit;                                    (* () -> void      *)
@@ -69,15 +80,15 @@ type fast_channel = {
 let slow_impl impl msg_t tf =
   let channel_t = opaque ("channel." ^ impl) in
 
-  let init        = Llvm.declare_function (impl ^ "_init")        (Llvm.function_type void_type [| channel_t; size_type |]) llmod in
-  let allocate    = Llvm.declare_function (impl ^ "_allocate")    (Llvm.function_type msg_t     [| channel_t; size_type |]) llmod in
-  let data        = Llvm.declare_function (impl ^ "_data")        (Llvm.function_type ptr_type  [| channel_t; msg_t;    |]) llmod in
-  let enqueue     = Llvm.declare_function (impl ^ "_enqueue")     (Llvm.function_type void_type [| channel_t; msg_t     |]) llmod in
-  let find        = Llvm.declare_function (impl ^ "_find")        (Llvm.function_type msg_t     [| channel_t; ptr_type  |]) llmod in
-  let try_claim   = Llvm.declare_function (impl ^ "_try_claim")   (Llvm.function_type bool_type [| channel_t; msg_t     |]) llmod in
-  let revert      = Llvm.declare_function (impl ^ "_revert")      (Llvm.function_type void_type [| channel_t; msg_t     |]) llmod in
-  let consume     = Llvm.declare_function (impl ^ "_consume")     (Llvm.function_type void_type [| channel_t; msg_t     |]) llmod in
-  let is_consumed = Llvm.declare_function (impl ^ "_is_consumed") (Llvm.function_type bool_type [| channel_t; msg_t     |]) llmod in
+  let init        = Function.declare (impl ^ "_init")        (Llvm.function_type void_type [| channel_t; size_type |]) in
+  let allocate    = Function.declare (impl ^ "_allocate")    (Llvm.function_type msg_t     [| channel_t; size_type |]) in
+  let data        = Function.declare (impl ^ "_data")        (Llvm.function_type ptr_type  [| channel_t; msg_t;    |]) in
+  let enqueue     = Function.declare (impl ^ "_enqueue")     (Llvm.function_type void_type [| channel_t; msg_t     |]) in
+  let find        = Function.declare (impl ^ "_find")        (Llvm.function_type msg_t     [| channel_t; ptr_type  |]) in
+  let try_claim   = Function.declare (impl ^ "_try_claim")   (Llvm.function_type bool_type [| channel_t; msg_t     |]) in
+  let revert      = Function.declare (impl ^ "_revert")      (Llvm.function_type void_type [| channel_t; msg_t     |]) in
+  let consume     = Function.declare (impl ^ "_consume")     (Llvm.function_type void_type [| channel_t; msg_t     |]) in
+  let is_consumed = Function.declare (impl ^ "_is_consumed") (Llvm.function_type bool_type [| channel_t; msg_t     |]) in
 
   fun t -> let size = Llvm.size_of t in
            let casted = Llvm.const_bitcast data (Llvm.pointer_type (Llvm.function_type (Llvm.pointer_type t) [| channel_t; msg_t |])) in
@@ -113,12 +124,12 @@ let fast_impl impl tf =
   let channel_t = opaque ("channel." ^ impl) in
   let msg_t     = opaque ("msg." ^ impl) in
 
-  let init        = Llvm.declare_function (impl ^ "_init")        (Llvm.function_type void_type [| channel_t; size_type |]) llmod in
-  let allocate    = Llvm.declare_function (impl ^ "_allocate")    (Llvm.function_type msg_t     [| channel_t; size_type |]) llmod in
-  let data        = Llvm.declare_function (impl ^ "_data")        (Llvm.function_type ptr_type  [| channel_t; msg_t     |]) llmod in
-  let enqueue     = Llvm.declare_function (impl ^ "_enqueue")     (Llvm.function_type void_type [| channel_t; msg_t     |]) llmod in
-  let find        = Llvm.declare_function (impl ^ "_find")        (Llvm.function_type msg_t     [| channel_t            |]) llmod in
-  let consume     = Llvm.declare_function (impl ^ "_consume")     (Llvm.function_type void_type [| channel_t; msg_t; size_type |]) llmod in 
+  let init        = Function.declare (impl ^ "_init")        (Llvm.function_type void_type [| channel_t; size_type |]) in
+  let allocate    = Function.declare (impl ^ "_allocate")    (Llvm.function_type msg_t     [| channel_t; size_type |]) in
+  let data        = Function.declare (impl ^ "_data")        (Llvm.function_type ptr_type  [| channel_t; msg_t     |]) in
+  let enqueue     = Function.declare (impl ^ "_enqueue")     (Llvm.function_type void_type [| channel_t; msg_t     |]) in
+  let find        = Function.declare (impl ^ "_find")        (Llvm.function_type msg_t     [| channel_t            |]) in
+  let consume     = Function.declare (impl ^ "_consume")     (Llvm.function_type void_type [| channel_t; msg_t; size_type |]) in 
 
   fun t -> let size = Llvm.size_of t in
            let casted = Llvm.const_bitcast data (Llvm.pointer_type (Llvm.function_type (Llvm.pointer_type t) [| channel_t; msg_t |])) in

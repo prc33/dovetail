@@ -13,7 +13,7 @@ let fold  f l s = List.fold_left l ~init:s ~f:(fun s x -> f x s)
 let foldi f l s = snd (List.fold_left l ~init:(0,s) ~f:(fun (i,s) x -> (i+1, f (i,x) s)))
 
 let context = Llvm.global_context ()
-let llmod = Runtime.llmod
+let llmod = Function.llmod
 
 let void_type = Llvm.void_type context
 let make_int = Llvm.const_int (Llvm.i32_type context)
@@ -226,13 +226,13 @@ let generate_slow_transition state instance_t t =
   (* Define transition body functions *)
   let slow_type = Llvm.function_type void_type [| Runtime.worker_t; Llvm.pointer_type match_type |] in
   let build_type = Llvm.function_type void_type (Array.of_list (Runtime.worker_t::match_parts)) in
-  let slow = Function.fast (Llvm.define_function ("slow." ^ string_of_int t.tid) slow_type llmod) in
+  let slow = Function.fast ("slow." ^ string_of_int t.tid) slow_type in
 
   (* Finalise match data structure type *)
   Llvm.struct_set_body match_type (Array.of_list ((Llvm.pointer_type slow_type)::match_parts)) false;
 
   (* Generate match building function (using slow version of transition) *)
-  let build = Function.inlined (Llvm.define_function ("build_match." ^ string_of_int t.tid) build_type llmod)
+  let build = Function.inlined ("build_match." ^ string_of_int t.tid) build_type
   in (
     let bb = Llvm.builder_at_end context (Llvm.entry_block build) in
 
@@ -279,7 +279,7 @@ let generate_slow_transition state instance_t t =
 let generate_fast_transition state instance_t t =
   let match_parts = instance_t :: (pattern_types state.types t.pattern) in
   let fast_type = Llvm.function_type void_type (Array.of_list (Runtime.worker_t::match_parts)) in
-  let fast = Function.inlined (Llvm.define_function ("fast." ^ string_of_int t.tid) fast_type llmod) in
+  let fast = Function.inlined ("fast." ^ string_of_int t.tid) fast_type in
   let bb = Llvm.builder_at_end context (Llvm.entry_block fast) in
 
   (* Initialise arguments in state with by extracting values from parameter structures *)

@@ -1,6 +1,6 @@
 BENCHMARKS = fib quicksort nqueens locks
 
-RUNTIME	= work.c atomics.ll trampoline.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c main.ll arrays.c
+RUNTIME	= work.c atomics.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c main.ll arrays.c
 BIN	= bin
 BUILD	= build
 BOEHM	= ~/boehm
@@ -35,6 +35,9 @@ runtime: $(BUILD)/runtime/runtime.bc
 clean:
 	rm -Rf $(BUILD)
 	rm -Rf $(BIN)
+
+clean-benchmarks:
+	rm $(BM_EXEC)
 
 $(BIN):
 	mkdir $(BIN)

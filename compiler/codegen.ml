@@ -11,7 +11,7 @@ let fold  f l s = List.fold_left l ~init:s ~f:(fun s x -> f x s)
 (** LLVM Code Generation                                                      *)
 
 let context = Llvm.global_context ()
-let llmod = Runtime.llmod
+let llmod = Function.llmod
 
 let void_type = Llvm.void_type context
 let make_int = Llvm.const_int (Llvm.i32_type context)
@@ -27,7 +27,7 @@ let compile_program p =
     let f c =
         if c.constructor then
           let t = Llvm.function_type void_type [| Runtime.worker_t; Typegen.structure types c.args |] in
-          Some (c.name, Function.fast (Llvm.define_function ("construct." ^ version ^ "." ^ c.name) t llmod))
+          Some (c.name, Function.fast ("construct." ^ version ^ "." ^ c.name) t)
         else
           None
     in String.Map.of_alist_exn (List.concat_map definitions (fun def -> (List.filter_map def.channels f)))
@@ -43,11 +43,11 @@ let compile_program p =
     | Type.Return(result_type) -> 
         (* External Function Declaration *)
         let func_type = Llvm.function_type (types result_type) (Array.of_list (List.map ts (types))) in
-        let func      = Llvm.declare_function name func_type llmod in
+        let func      = Function.declare name func_type in
         (* Emit Function *)
         let chan_type = Typegen.structure types (ts @ [Type.Channel([result_type])]) in
         let emit_type = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; chan_type |] in
-        let emit      = Function.fast (Llvm.define_function ("emit.extern." ^ name) emit_type llmod) in
+        let emit      = Function.fast ("emit.extern." ^ name) emit_type in
         let bb        = Llvm.builder_at_end context (Llvm.entry_block emit) in
         (* Extract function parameters and do call *)
         let msg_in    = Llvm.param emit 2 in
@@ -67,11 +67,11 @@ let compile_program p =
     | Type.Void ->
         (* External Function Declaration *)
         let func_type = Llvm.function_type void_type (Array.of_list (List.map ts types)) in
-        let func      = Llvm.declare_function name func_type llmod in
+        let func      = Function.declare name func_type in
         (* Emit Function *)
         let chan_type = Typegen.structure types (ts @ [Type.Channel([])]) in
         let emit_type = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; chan_type |] in
-        let emit      = Function.fast (Llvm.define_function ("emit.extern." ^ name) emit_type llmod) in
+        let emit      = Function.fast ("emit.extern." ^ name) emit_type in
         let bb        = Llvm.builder_at_end context (Llvm.entry_block emit) in
         (* Extract function parameters and do call *)
         let msg_in    = Llvm.param emit 2 in
@@ -111,7 +111,7 @@ let compile_program p =
           values
         else
           let t = Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; Typegen.structure types c.args |] in
-          let f = Function.fast (Llvm.define_function ("emit." ^ version ^ "." ^ c.name) t llmod) in
+          let f = Function.fast ("emit." ^ version ^ "." ^ c.name) t in
           Map.add values c.name f
       )
     in
