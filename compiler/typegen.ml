@@ -9,7 +9,9 @@ open Core.Std
 exception Unknown of string
 
 let context = Llvm.global_context ()
-let void_type = Llvm.void_type context
+
+let void     = Llvm.void_type context
+
 let int_type  = Llvm.i32_type context
 
 type t = Jcam.Type.t -> Llvm.lltype
@@ -28,7 +30,7 @@ let convert f t = match t with
   | Type.Integer w  -> Llvm.integer_type context w
   | Type.Struct  ts -> Llvm.pointer_type (structure f ts)
   | Type.Channel ts -> Llvm.struct_type context [|
-                         Llvm.pointer_type (Llvm.function_type void_type [| Runtime.worker_t; Runtime.instance_t; structure f ts |]);
+                         Llvm.pointer_type (Llvm.function_type void [| Runtime.worker_t; Runtime.instance_t; structure f ts |]);
                          Runtime.instance_t
                        |]
 
@@ -51,7 +53,10 @@ let generate ts =
 
   ignore (Map.merge ast declarations (fun ~key -> function
     | `Both (Type.Struct  ts, lltype) -> Llvm.struct_set_body (Llvm.element_type lltype) (Array.of_list (List.map ts result)) false; None
-    | `Both (Type.Channel ts, lltype) -> Llvm.struct_set_body lltype (Array.of_list (List.map ts result)) false; None
+    | `Both (Type.Channel ts, lltype) -> Llvm.struct_set_body lltype [|
+                                           Llvm.pointer_type (Llvm.function_type void [| Runtime.worker_t; Runtime.instance_t; structure result ts |]);
+                                           Runtime.instance_t
+                                         |] false; None
     | `Both (Type.Array   t , lltype) -> Llvm.struct_set_body lltype [| int_type; Llvm.pointer_type (result t) |] false; None
     | _ -> None
   ));
