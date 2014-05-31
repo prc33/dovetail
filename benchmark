@@ -4,14 +4,13 @@ export LD_LIBRARY_PATH=~/boehm/lib/
 
 database='results.db'
 repeats=20
-max_threads=2
 
 sqlfile=$(tempfile)
 
 show_progress() {
   n=$(( $n + 1 ))
-  p=$(( $n * 100 / ($repeats * ($max_threads * 2 + 2)) ))
-  echo -ne ${command_to_run}' '${argument}' ('${p}'%) \r'
+  p=$(( $n * 100 / $repeats ))
+  echo -ne ${command_to_run}' ('${p}'%) \r'
 }
  
 run_tests() {
@@ -19,46 +18,29 @@ run_tests() {
 
   for (( i = 1; i <= $repeats ; i++ ))
   do
-    for (( t = 1; t <= $max_threads ; t++ ))
-    do
-      # Dovetail
-      (TIMEFORMAT="insert into timings (benchmark, version, threads, n, t_real, t_user) values ('${command_to_run}','dovetail',${t},${argument},%3R,%3U);"; time ${command_to_run} ${t} ${argument} > /dev/null 2>&1) 2>>${sqlfile}
-      show_progress
-
-      # Wool
-      (TIMEFORMAT="insert into timings (benchmark, version, threads, n, t_real, t_user) values ('${command_to_run}','wool',${t},${argument},%3R,%3U);"; time ${command_to_run}_wool -p${t} ${argument} > /dev/null 2>&1) 2>>${sqlfile}
-      show_progress
-    done;
-
-    # Base
-    (TIMEFORMAT="insert into timings (benchmark, version, threads, n, t_real, t_user) values ('${command_to_run}','base',1,${argument},%3R,%3U);"; time ${command_to_run}_base ${argument} > /dev/null 2>&1) 2>>${sqlfile}
+    (TIMEFORMAT="insert into timings (benchmark, version, threads, n, t_real, t_user) values ('${benchmark}', '${version}',${threads},${argument},%3R,%3U);"; time ${command_to_run} > /dev/null 2>&1) 2>>${sqlfile}
     show_progress
-
-    # Java
-#    /usr/bin/time -f "insert into timings (benchmark, version, threads, n, t_real, t_user) values ('${command_to_run}','dovetail',1,${argument},%e,%U);" -o ${sqlfile} -a ${command_to_run}_wool -p${t} ${argument} > /dev/null 2>&1
-    show_progress
-
   done;
- 
+
   echo -ne '\n'
 
-  echo -ne 'Callgrind (fast mode)...\n'
-  callgrindout=$(tempfile)
-  valgrind --tool=callgrind --dump-instr=yes --callgrind-out-file=${callgrindout} ${command_to_run} 1 ${argument}
-  total=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 TOTALS | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
-  mem=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 GC_malloc | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
-  sqlite3 ${database} "insert into mm (benchmark, threads, n, gc, total) values('${command_to_run}', 1, ${argument}, ${mem}, ${total});"
+#  echo -ne 'Callgrind (fast mode)...\n'
+#  callgrindout=$(tempfile)
+#  valgrind --tool=callgrind --dump-instr=yes --callgrind-out-file=${callgrindout} ${command_to_run} 1 ${argument}
+#  total=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 TOTALS | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
+#  mem=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 GC_malloc | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
+#  sqlite3 ${database} "insert into mm (suite, variant, benchmark, threads, n, gc, total) values('${suite}', '${variant}', '${command_to_run}', 1, ${argument}, ${mem}, ${total});"
 
-  echo -ne 'Callgrind (slow mode)...\n'
-  callgrindout=$(tempfile)
-  valgrind --tool=callgrind --dump-instr=yes --callgrind-out-file=${callgrindout} ${command_to_run} ${max_threads} ${argument}
-  total=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 TOTALS | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
-  mem=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 GC_malloc | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
-  sqlite3 ${database} "insert into mm (benchmark, threads, n, gc, total) values('${command_to_run}', ${max_threads}, ${argument}, ${mem}, ${total});"
+#  echo -ne 'Callgrind (slow mode)...\n'
+#  callgrindout=$(tempfile)
+#  valgrind --tool=callgrind --dump-instr=yes --callgrind-out-file=${callgrindout} ${command_to_run} ${max_threads} ${argument}
+#  total=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 TOTALS | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
+#  mem=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 GC_malloc | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
+#  sqlite3 ${database} "insert into mm (suite, variant, benchmark, threads, n, gc, total) values('${suite}', '${variant}', '${command_to_run}', ${max_threads}, ${argument}, ${mem}, ${total});"
 }
  
 # Option parsing
-while getopts n:c:o: OPT
+while getopts f:c: OPT
 do
     case "$OPT" in
         f)
@@ -66,9 +48,6 @@ do
             ;;
         c)
             repeats=$OPTARG
-            ;;
-        t)
-            max_threads=$OPTARG
             ;;
         \?)
             echo 'No arguments supplied'
@@ -80,13 +59,18 @@ done
 # Generate Database
 if [[ ! -f ${database} ]]; then
     sqlite3 ${database} "create table timings (id INTEGER PRIMARY KEY, benchmark TEXT, version TEXT, threads INTEGER, n INTEGER, t_real REAL, t_user REAL);"
-    sqlite3 ${database} "create table mm (id INTEGER PRIMARY KEY, benchmark TEXT, threads INTEGER, n INTEGER, gc INTEGER, total INTEGER);"
+#    sqlite3 ${database} "create table mm (id INTEGER PRIMARY KEY, suite TEXT, variant TEXT, benchmark TEXT, threads INTEGER, n INTEGER, gc INTEGER, total INTEGER);"
 fi
 
 shift `expr $OPTIND - 1`
 
-command_to_run=$1
-argument=$2
+benchmark=$1
+version=$2
+threads=$3
+argument=$4
+shift 4
+
+command_to_run=$@
 
 run_tests
 

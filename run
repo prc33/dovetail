@@ -1,0 +1,17 @@
+#!/bin/bash
+
+test_cc() {
+  make clean-benchmarks
+  DOVETAIL_CALLCONV=$2 DOVETAIL_TAILCALLS=false make bin/fib
+  ./benchmark fib callconv-$1-notail 1 40 bin/fib 1 40
+
+  make clean-benchmarks
+  DOVETAIL_CALLCONV=$2 DOVETAIL_TAILCALLS=true make bin/fib
+  ./benchmark fib callconv-$1-tail 1 40 bin/fib 1 40
+}
+
+test_cc stdc      0
+test_cc fastcc    8
+#test_cc haskell  10 # Bad interaction with GC?
+test_cc x86-std  64
+test_cc x86-fast 65
