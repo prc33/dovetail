@@ -9,8 +9,8 @@ WOOL	= ~/Desktop/wool-0.1.5alpha
 CLANG	= /usr/bin/clang -g -S -I $(BOEHM)/include/ -O0 -emit-llvm
 LINK	= llvm-link-3.4
 OPT	= opt-3.4 -instcombine -std-compile-opts -std-link-opts -O3
-LLC	= llc-3.4 -O3 -filetype=obj -debug
-ASM	= /usr/bin/clang -g
+LLC	= llc-3.4 -O3
+ASM	= gcc
 LIBS	= $(BOEHM)/lib/libgc.a -lpthread
 JCAMC	= $(BIN)/jcamc
 CC	= gcc -std=c99 -O3 -Wall
@@ -70,8 +70,11 @@ $(BUILD)/%.opt.ll: $(BUILD)/%.linked.bc
 
 $(BUILD)/%.fixed.ll: $(BUILD)/%.opt.ll
 	./fix-selects.sh $< $@
+
+$(BUILD)/%.s: $(BUILD)/%.fixed.ll
+	$(LLC) $< -o $@
 	
-$(BIN)/%: $(BUILD)/benchmarks/%.fixed.ll | $(BIN)
+$(BIN)/%: $(BUILD)/benchmarks/%.s | $(BIN)
 	$(ASM) $< $(LIBS) -o $@
 
 $(BIN)/%_base: benchmarks/%.c | $(BIN)
