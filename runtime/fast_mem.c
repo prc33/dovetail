@@ -38,9 +38,11 @@ __attribute__((always_inline)) void fast_mem_init(void *ptr, size_t size) {
  * queue, this is therefore the identity function. Note that it should only
  * ever be called once in a transition, and that transition must have matched
  * on the channel (otherwise the fixed size, length 1 queue assumption is
- * broken).
+ * broken). Enqueuing a value is also a no-op since the location always has a
+ * value. Remember that this implementation is for fast-mode so we don't need
+ * to worry about data races.
  */
-__attribute__((always_inline)) void *fast_mem_allocate(void *ptr, size_t size) {
+__attribute__((always_inline)) void *fast_mem_enqueue(void *ptr, size_t size) {
   return ptr;
 }
 
@@ -52,18 +54,9 @@ __attribute__((always_inline)) void *fast_mem_data(void *ptr, void *ptr_dup) {
 }
 
 /*
- * Enqueuing a value is also a no-op since the location always has a value.
- * Remember that this implementation is for fast-mode so we don't need to
- * worry about data races.
- */
-__attribute__((always_inline)) void fast_mem_enqueue(void *ptr, void *ptr2) {
-  // Nothing
-}
-
-/*
  * Since the location always has a value, this is the identity function.
  */
-__attribute__((always_inline)) void *fast_mem_find(void *ptr) {
+__attribute__((always_inline)) void *fast_mem_find(void *ptr, size_t size) {
   return ptr;
 }
 

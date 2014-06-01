@@ -125,10 +125,9 @@ let fast_impl impl tf =
   let msg_t     = opaque ("msg." ^ impl) in
 
   let init        = Function.declare (impl ^ "_init")        (Llvm.function_type void_type [| channel_t; size_type |]) in
-  let allocate    = Function.declare (impl ^ "_allocate")    (Llvm.function_type msg_t     [| channel_t; size_type |]) in
+  let enqueue     = Function.declare (impl ^ "_enqueue")     (Llvm.function_type msg_t     [| channel_t; size_type |]) in
   let data        = Function.declare (impl ^ "_data")        (Llvm.function_type ptr_type  [| channel_t; msg_t     |]) in
-  let enqueue     = Function.declare (impl ^ "_enqueue")     (Llvm.function_type void_type [| channel_t; msg_t     |]) in
-  let find        = Function.declare (impl ^ "_find")        (Llvm.function_type msg_t     [| channel_t            |]) in
+  let find        = Function.declare (impl ^ "_find")        (Llvm.function_type msg_t     [| channel_t; size_type |]) in
   let consume     = Function.declare (impl ^ "_consume")     (Llvm.function_type void_type [| channel_t; msg_t; size_type |]) in 
 
   fun t -> let size = Llvm.size_of t in
@@ -138,12 +137,11 @@ let fast_impl impl tf =
     fast_data        = (fun msg -> Llvm.build_call casted [| channel; msg |]);
     fast_enqueue     =
       (fun value s bb ->
-         let msg = Llvm.build_call allocate [| channel; size |] s bb in
+         let msg = Llvm.build_call enqueue [| channel; size |] s bb in
          let ptr = Llvm.build_call casted [| channel; msg |] (s ^ ".data") bb in
          Llvm.build_store value ptr bb |> ignore;
-         Llvm.build_call enqueue [| channel; msg |] "" bb |> ignore;
          msg);
-    fast_find        = (Llvm.build_call find [| channel |]);
+    fast_find        = (Llvm.build_call find [| channel; size |]);
     fast_consume     = (fun msg bb -> Llvm.build_call consume [| channel; msg; size |] "" bb |> ignore);
   })
 

@@ -47,11 +47,12 @@ __attribute__((always_inline)) void fast_cell_init(cell_t *cell, size_t size) {
 }
 
 /*
- * Returns a memory address for the cell. For a cell, this is effectively the
- * identity function. Note that should only ever be called when the cell is
- * empty, as it always gives the same cell.
+ * Returns a memory address for the cell and marks the cell as full. For a
+ * cell, this is effectively the identity function. Note that should only ever
+ * be called when the cell is empty, as it always gives the same cell.
  */
-__attribute__((always_inline)) cell_t *fast_cell_allocate(cell_t *cell, size_t size) {
+__attribute__((always_inline)) cell_t *fast_cell_enqueue(cell_t *cell, size_t size) {
+  cell->status = FULL;
   return cell;
 }
 
@@ -63,17 +64,10 @@ __attribute__((always_inline)) void *fast_cell_data(cell_t *cell, cell_t *cell_d
 }
 
 /*
- * Marks the cell as full.
- */
-__attribute__((always_inline)) void fast_cell_enqueue(cell_t *cell, cell_t *msg) {
-  cell->status = FULL;
-}
-
-/*
  * If the cell is full, this becomes the identity function. Otherwise it
  * returns NULL.
  */
-__attribute__((always_inline)) cell_t *fast_cell_find(cell_t *cell) {
+__attribute__((always_inline)) cell_t *fast_cell_find(cell_t *cell, size_t size) {
   if(cell->status == FULL) {
     return cell;
   } else {

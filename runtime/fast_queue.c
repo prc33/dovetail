@@ -40,27 +40,27 @@ __attribute__((always_inline)) void fast_queue_init(queue_t *queue, size_t size)
   queue->capacity = INITIAL_CAPACITY;
 }
 
-__attribute__((always_inline)) void *fast_queue_allocate(queue_t *queue, size_t size) {
+__attribute__((always_inline)) void *fast_queue_enqueue(queue_t *queue, size_t size) {
   // TODO: check capacity
-  return queue->top;
+  void *msg = queue->top;
+
+  queue->top += size;
+
+  return msg;
 }
 
 __attribute__((always_inline)) void *fast_queue_data(queue_t *queue, void *msg) {
   return msg;
 }
 
-__attribute__((always_inline)) void fast_queue_enqueue(queue_t *queue, void *msg) {
-  queue->top = msg;
-}
-
-__attribute__((always_inline)) void *fast_queue_find(queue_t *queue) {
+__attribute__((always_inline)) void *fast_queue_find(queue_t *queue, size_t size) {
   if(queue->top > queue->data) {
-    return queue->top;
+    return queue->top - size;
   } else {
     return NULL;
   }
 }
 
 __attribute__((always_inline)) void fast_queue_consume(queue_t *queue, void *msg, size_t size) {
-  queue->top = msg - size;
+  queue->top = msg;
 }
