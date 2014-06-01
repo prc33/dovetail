@@ -7,6 +7,18 @@
 
 open Jcam
 
+
+module OptLevel = struct
+  let value = try  int_of_string (Sys.getenv "DOVETAIL_OPTLEVEL")
+              with _ -> 100
+
+  let functional    attrs = if (value >= 1) then  CAttribute.Functional    :: attrs else attrs
+  let closed        attrs = if (value >= 2) then  DAttribute.Closed        :: attrs else attrs
+  let lower_bound i attrs = if (value >= 3) then (CAttribute.LowerBound i) :: attrs else attrs
+  let upper_bound i attrs = if (value >= 3) then (CAttribute.UpperBound i) :: attrs else attrs
+  let head          attrs = if (value >= 4) then  CAttribute.Head          :: attrs else attrs
+end
+
 let rec parse = parser
   (* Type alias definitions *)
   | [< 'Token.Id s;
@@ -314,26 +326,24 @@ and parse_compare = parser
 
 and parse_def_attrs = parser
   | [< 'Token.Kwd "inline"; attrs=parse_def_attrs >] -> DAttribute.Inline :: attrs
-  | [< 'Token.Kwd "closed"; attrs=parse_def_attrs >] -> DAttribute.Closed :: attrs
+  | [< 'Token.Kwd "closed"; attrs=parse_def_attrs >] -> OptLevel.closed attrs
   | [< 'Token.Kwd "singleton"; attrs=parse_def_attrs >] -> DAttribute.Singleton :: attrs
   | [< >] -> []
   
 and parse_chan_attrs = parser
-  | [< 'Token.Kwd "functional"; attrs=parse_chan_attrs >] -> CAttribute.Functional :: attrs
+  | [< 'Token.Kwd "functional"; attrs=parse_chan_attrs >] -> OptLevel.functional attrs
   | [< 'Token.Kwd "lower_bound";
        'Token.Symbol '(' ?? "expected '('";
        'Token.Integer i      ?? "expected integer";
        'Token.Symbol ')' ?? "expected ')'";
-       attrs=parse_chan_attrs >] -> (CAttribute.LowerBound i) :: attrs
+       attrs=parse_chan_attrs >] -> OptLevel.lower_bound i attrs
   | [< 'Token.Kwd "upper_bound";
        'Token.Symbol '(' ?? "expected '('";
        'Token.Integer i      ?? "expected integer";
        'Token.Symbol ')' ?? "expected ')'";
-       attrs=parse_chan_attrs >] -> (CAttribute.UpperBound i) :: attrs
-  | [< 'Token.Kwd "cell"; attrs=parse_chan_attrs >] ->
-                 (CAttribute.UpperBound 1) :: attrs
-  | [< 'Token.Kwd "mem"; attrs=parse_chan_attrs >] ->
-                 (CAttribute.LowerBound 1) :: (CAttribute.UpperBound 1) :: (CAttribute.Head) :: attrs
+       attrs=parse_chan_attrs >] -> OptLevel.upper_bound i attrs
+  | [< 'Token.Kwd "cell"; attrs=parse_chan_attrs >] -> OptLevel.upper_bound 1 attrs
+  | [< 'Token.Kwd "mem"; attrs=parse_chan_attrs >] -> OptLevel.lower_bound 1 (OptLevel.upper_bound 1 (OptLevel.head attrs))
   | [< >] -> []
   
 and parse_transition_attrs = parser
