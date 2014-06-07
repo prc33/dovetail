@@ -112,7 +112,7 @@ __attribute__((always_inline)) bool slow_cell_try_claim(queue_t *queue, int32_t 
   queue_t old = (queue_t) { .version = version, .status = PENDING };
   queue_t new = (queue_t) { .version = version, .status = CLAIMED };
 
-  return llvm_cas(&queue->value, old.value, new.value);
+  return llvm_cas_ptr(&queue->value, old.value, new.value);
 }
 
 /*
