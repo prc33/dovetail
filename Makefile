@@ -6,10 +6,10 @@ BUILD	= build
 BOEHM	= ~/boehm
 WOOL	= ~/Desktop/wool-0.1.5alpha
 
-CLANG	= /usr/bin/clang -g -S -I $(BOEHM)/include/ -O0 -emit-llvm
-LINK	= llvm-link-3.4
-OPT	= opt-3.4 -instcombine -std-compile-opts -std-link-opts -O3
-LLC	= llc-3.4 -O3
+CLANG	= clang -g -S -I $(BOEHM)/include/ -O0 -emit-llvm
+LINK	= llvm-link
+OPT	= opt -instcombine -std-compile-opts -std-link-opts -O3
+LLC	= llc -O3
 ASM	= gcc
 LIBS	= $(BOEHM)/lib/libgc.a -lpthread
 JCAMC	= $(BIN)/jcamc
@@ -50,8 +50,8 @@ $(BUILD):
 	mkdir $(BUILD)/benchmarks
 
 $(JCAMC): compiler/*.ml | $(BUILD) $(BIN)
-	ocamlbuild -I compiler -use-ocamlfind dovetail.byte -package llvm -build-dir $(BUILD)
-	ln -s -f ../$(BUILD)/compiler/dovetail.byte $(JCAMC)
+	ocamlbuild -I compiler -use-ocamlfind dovetail.native -package llvm -build-dir $(BUILD)
+	ln -s -f ../$(BUILD)/compiler/dovetail.native $(JCAMC)
 
 $(BUILD)/runtime/%.ll: runtime/%.c | $(BUILD)
 	$(CLANG) $< -o $@

@@ -31,26 +31,34 @@ type state = {
 
 let get_state types constructors values constants = { types=types; values=values; blocks=String.Map.empty; undef=String.Map.empty; constructors=constructors; constants=constants }
 
-let init_state f = fold (fun b state -> (match b.label with
+let init_state f blocks s =
+  let init_bb = Llvm.builder_at_end context (Llvm.append_block context "placeholders" f) in
+
+  let new_s = fold (fun b state -> (match b.label with
     | None   ->   state
     | Some l -> { state with blocks=Map.add state.blocks l (Llvm.append_block context l f) }
     ) |>
 
+
     (* Placeholder values for any Phi-nodes *)
     fold (fun (v,t,_) state ->
-      let placeholder = Llvm.declare_global (state.types t) ("fref." ^ v) llmod in
+      let placeholder = Llvm.build_load (Llvm.declare_global (state.types t) ("fref." ^ v) llmod) ("fval." ^ v) init_bb in
       { state with values=Map.add state.values v placeholder; undef=Map.add state.undef v placeholder }
     ) b.phis |>
 
     (* Placeholder values for all assignments *)
     fold (fun i state -> (match i with
       | Instruction.Assign(v,e) ->
-          let placeholder = Llvm.declare_global (state.types (Typing.return_type e)) ("fref." ^ v) llmod in
+          let placeholder = Llvm.build_load (Llvm.declare_global (state.types (Typing.return_type e)) ("fref." ^ v) llmod) ("fval." ^ v) init_bb in
           { state with values=Map.add state.values v placeholder; undef=Map.add state.undef v placeholder }
       | _ -> state
       )
     ) b.instrs
-  )
+  ) blocks s in
+
+  Llvm.build_ret_void init_bb |> ignore;
+
+  new_s
 
 let generate_block f instance block state =
   let value t v s = match v with
@@ -145,7 +153,7 @@ let generate_block f instance block state =
       let old_value = Map.find_exn s.undef v in
       let new_value = Llvm.build_phi (List.map incoming (fun (i,l) -> (value t i s, Map.find_exn s.blocks l))) v bb in
       Llvm.replace_all_uses_with old_value new_value;
-      Llvm.delete_global old_value;
+      (*Llvm.delete_global old_value;*)
     { s with values=Map.add s.values v new_value; undef=Map.remove s.undef v }  
   ) block.phis |>
 
@@ -156,7 +164,7 @@ let generate_block f instance block state =
         let old_value = Map.find_exn s.undef v in
         let new_value = build_expr v s e in
         Llvm.replace_all_uses_with old_value new_value;
-        Llvm.delete_global old_value;
+        (*Llvm.delete_global old_value;*)
         { s with values=Map.add s.values v new_value; undef=Map.remove s.undef v }
     (* Array Stores *)
     | Instruction.Store(Type.Array(t) as arr_t,a,e,i) ->
