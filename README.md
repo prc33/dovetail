@@ -14,8 +14,8 @@ Dovetail makes use of LLVM via the OCaml bindings. OCaml and LLVM can be install
 ```
 wget https://raw.github.com/ocaml/opam/master/shell/opam_installer.sh
 sh ./opam_installer.sh /usr/local/bin 4.01.0
+opam install core
 opam install llvm.3.2
-opam install ocamlfind
 ```
 
 The Boehm garbage collector library is also required, and expected to be installed in `~/boehm/`. This can be acheived as follows:
