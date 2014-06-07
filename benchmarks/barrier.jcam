@@ -1,0 +1,143 @@
+; Tree version is too hard...
+
+definition {
+  channel @new_state(i32, (i32, i32, ((i32)), (i32), i32), i32)  functional
+  channel %enqueue((i32))
+  channel %release(i32)
+
+  transition @new_state(i32 %n, (i32, i32, ((i32)), (i32), i32) %k, i32 %debug) {
+    emit %k(i32 %n, i32 %n, ((i32)) %enqueue, (i32) %release, i32 %debug)
+    finish
+  }
+
+  transition %enqueue((i32) %k) %release(i32 %dummy) {
+    emit %k(i32 0)
+    finish
+  }
+}
+
+definition {
+  channel @create_barrier(i32, (((i32))))              functional
+  channel %state(i32, i32, ((i32)), (i32), i32)        cell         ; How to infer? NOT mem
+  channel %done((i32))
+
+  transition @create_barrier(i32 %n, (((i32))) %k) {
+    construct @new_state(i32 %n, (i32, i32, ((i32)), (i32), i32) %state, i32 1000000)
+    emit %k(((i32)) %done)
+    finish
+  }
+
+  transition %done((i32) %k) %state(i32 %remaining, i32 %n, ((i32)) %enqueue, (i32) %release, i32 %debug) {
+    emit %enqueue((i32) %k)
+    br label %entry
+
+  entry:
+    %remaining_m1 = add i32 %remaining, -1
+    %more = cmp ugt i32 %remaining_m1, 0
+    br %more, label %do_more, label %do_release
+
+  do_more:
+    emit %state(i32 %remaining_m1, i32 %n, ((i32)) %enqueue, (i32) %release, i32 %debug)
+    finish
+
+  do_release:
+    %to_release = phi i32 [%n, %entry], [%to_release_m1, %do_release]
+    emit %release(i32 0)
+    %to_release_m1 = add i32 %to_release, -1
+    %all_released = cmp eq i32 %to_release_m1, 0
+    br %all_released, label %end, label %do_release
+
+  end:
+    %debug_m1 = add i32 %debug, -1
+    construct @new_state(i32 %n, (i32, i32, ((i32)), (i32), i32) %state, i32 %debug_m1)
+    finish
+  }
+}
+
+definition {
+  channel @create_async_barrier(i32, (i32), ((i32))) functional
+  channel %state(i32, (i32))                         mem
+  channel %inc(i32)
+
+  transition @create_async_barrier(i32 %count, (i32) %cont, ((i32)) %k) {
+    emit %state(i32 %count, (i32) %cont)
+    emit %k((i32) %inc)
+    finish
+  }
+
+  transition %state(i32 %count, (i32) %cont) %inc(i32 %dummy) {
+    %count_m1 = add i32 %count, -1
+    %done = cmp eq i32 %count_m1, 0
+    br %done, label %end, label %next
+  
+  next:
+    emit %state(i32 %count_m1, (i32) %cont)
+    finish
+
+  end:
+    emit %cont(i32 0)
+    finish
+  }
+}
+
+definition {
+  channel @create_worker(((i32)), (i32))    functional
+  channel %values(i32, ((i32)), (i32))      mem
+  channel %step(i32)                        cell
+
+  transition @create_worker(((i32)) %barrier_k, (i32) %k) {
+    emit %values(i32 1000000, ((i32)) %barrier_k, (i32) %k)
+    emit %step(i32 0)
+    finish
+  }
+
+  transition %values(i32 %count, ((i32)) %barrier_k, (i32) %k) %step(i32 %dummy) {
+    %done = cmp eq i32 %count, 0
+    br %done, label %end, label %next
+
+  next:
+    %count_m1 = add i32 %count, -1
+    emit %values(i32 %count_m1, ((i32)) %barrier_k, (i32) %k)
+    emit %barrier_k((i32) %step)
+    finish
+
+  end:
+    emit %k(i32 0)
+    finish
+  }
+}
+
+definition {
+  channel @main(i32, (i32))                       functional
+  channel %async_barrier((i32))                   cell
+  channel %barrier(((i32)))                       cell
+  channel %to_create(i32, ((i32)), (i32))         functional
+  channel %tmp(i32)                               cell
+
+  transition @main(i32 %n, (i32) %k) {
+    emit %tmp(i32 %n)
+    construct @create_async_barrier(i32 %n, (i32) %k, ((i32)) %async_barrier)
+    construct @create_barrier(i32 %n, (((i32))) %barrier)
+    finish
+  }
+
+  transition %tmp(i32 %n) %async_barrier((i32) %sync) %barrier(((i32)) %barrier_k) {
+    emit %to_create(i32 %n, ((i32)) %barrier_k, (i32) %sync)
+    finish
+  }
+
+  transition %to_create(i32 %n, ((i32)) %barrier_k, (i32) %sync) {
+    %done = cmp eq i32 %n, 0
+    br %done, label %end, label %next
+
+  next:
+    %n_m1 = add i32 %n, -1
+    construct @create_worker(((i32)) %barrier_k, (i32) %sync)
+    emit %to_create(i32 %n_m1, ((i32)) %barrier_k, (i32) %sync)
+    finish
+
+  end:
+    finish
+  }
+}
+
