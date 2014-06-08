@@ -1,0 +1,198 @@
+;%fun = type ((i8))
+
+definition {
+  channel @create_rwlock((((i8)),((i8)),((i8)),((i8)))) functional
+  channel %rd_acq((i8))
+  channel %rd_rel((i8))                   
+  channel %wr_acq((i8))
+  channel %wr_rel((i8))                   functional
+  channel %idle(i8)                       cell
+  channel %sharing(i32)                   cell
+
+  transition @create_rwlock((((i8)), ((i8)), ((i8)), ((i8))) %k) {
+    emit %idle(i8 0)
+    emit %k(((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel)
+    finish
+  }
+
+  transition %rd_acq((i8) %k) %idle(i8 %dummy) {
+    emit %k(i8 0)
+    emit %sharing(i32 1)
+    finish
+  }
+
+  transition %rd_acq((i8) %k) %sharing(i32 %count) {
+    %count_p1 = add i32 %count, 1
+    emit %k(i8 0)
+    emit %sharing(i32 %count_p1)
+    finish
+  }
+
+  transition %rd_rel((i8) %k) %sharing(i32 %count) {
+    emit %k(i8 0)
+    %count_m1 = add i32 %count, -1
+    %last = cmp eq i32 %count_m1, 0
+    br %last, label %do_last, label %do_normal
+
+  do_normal:
+    emit %sharing(i32 %count_m1)
+    finish
+  
+  do_last:
+    emit %idle(i8 0)
+    finish
+  }
+
+  transition %wr_acq((i8) %k) %idle(i8 %dummy) {
+    emit %k(i8 0)
+    finish
+  }
+
+  transition %wr_rel((i8) %k) {
+    emit %idle(i8 0)
+    emit %k(i8 0)
+    finish
+  }
+}
+
+definition {
+  channel @create_async_barrier(i32, (i32), ((i8))) functional
+  channel %state(i32, (i32))                        mem
+  channel %inc(i8)
+
+  transition @create_async_barrier(i32 %count, (i32) %cont, ((i8)) %k) {
+    emit %state(i32 %count, (i32) %cont)
+    emit %k((i8) %inc)
+    finish
+  }
+
+  transition %state(i32 %count, (i32) %cont) %inc(i8 %dummy) {
+    %count_m1 = add i32 %count, -1
+    %done = cmp eq i32 %count_m1, 0
+    br %done, label %end, label %next
+  
+  next:
+    emit %state(i32 %count_m1, (i32) %cont)
+    finish
+
+  end:
+    emit %cont(i32 0)
+    finish
+  }
+}
+
+@rand_init = extern (i32) -> i32
+@rand_next = extern (i32) -> i32
+
+definition {
+  channel @create_rand(i32, (((i32))))  functional
+  channel %id(i32)               cell
+  channel %rand((i32))           cell
+
+  transition @create_rand(i32 %range, (((i32))) %k) {
+    emit @rand_init(i32 %range, (i32) %id)
+    emit %k(((i32)) %rand)
+    finish
+  }
+
+  transition %rand((i32) %k) %id(i32 %num) {
+    emit %id(i32 %num)
+    emit @rand_next(i32 %num, (i32) %k)
+    finish
+  }
+}
+
+definition {
+  channel @create_worker(((i8)), ((i8)), ((i8)), ((i8)), (i8))    functional
+  channel %values(i32, ((i8)), ((i8)), ((i8)), ((i8)), (i8))      mem
+  channel %step1(i8)                                              cell
+  channel %step2(i32)                                             cell
+  channel %step3_rd(i8)                                           cell
+  channel %step3_wr(i8)                                           cell
+  channel %random(((i32)))                                        cell
+
+  transition @create_worker(((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %k) {
+    emit %values(i32 1000000, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %k)
+    emit %step1(i8 0)
+    construct @create_rand(i32 4, (((i32))) %random)
+    finish
+  }
+
+  transition %step1(i8 %dummy) %random(((i32)) %rand){
+    emit %random(((i32)) %rand)
+    emit %rand((i32) %step2)
+    finish
+  }
+
+  transition %values(i32 %count, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %k) %step2(i32 %choice) {
+    emit %values(i32 %count, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %k)
+
+    %done = cmp eq i32 %count, 0
+    br %done, label %end, label %next
+
+  next:
+    %writer = cmp eq i32 %choice, 0
+    br %writer, label %next_wr, label %next_rd
+
+  next_rd:
+    emit %rd_acq((i8) %step3_rd)
+    finish
+
+  next_wr:
+    emit %wr_acq((i8) %step3_wr)
+    finish
+
+  end:
+    emit %k(i8 0)
+    finish
+  }
+
+  transition %values(i32 %count, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %k) %step3_rd(i8 %dummy) {
+    %count_m1 = add i32 %count, -1
+    emit %values(i32 %count_m1, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %k)
+    emit %rd_rel((i8) %step1)
+    finish
+  }
+
+  transition %values(i32 %count, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %k) %step3_wr(i8 %dummy) {
+    %count_m1 = add i32 %count, -1
+    emit %values(i32 %count_m1, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %k)
+    emit %wr_rel((i8) %step1)
+    finish
+  }
+}
+
+definition {
+  channel @main(i32, (i32))                       functional
+  channel %barrier((i8))                          cell
+  channel %lock(((i8)), ((i8)), ((i8)), ((i8)))                   cell
+  channel %to_create(i32, ((i8)), ((i8)), ((i8)), ((i8)), (i8))   functional
+  channel %tmp(i32)                               cell
+
+  transition @main(i32 %n, (i32) %k) {
+    emit %tmp(i32 %n)
+    construct @create_async_barrier(i32 %n, (i32) %k, ((i8)) %barrier)
+    construct @create_rwlock((((i8)), ((i8)), ((i8)), ((i8))) %lock)
+    finish
+  }
+
+  transition %tmp(i32 %n) %barrier((i8) %sync) %lock(((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel) {
+    emit %to_create(i32 %n, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %sync)
+    finish
+  }
+
+  transition %to_create(i32 %n, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %sync) {
+    %done = cmp eq i32 %n, 0
+    br %done, label %end, label %next
+
+  next:
+    %n_m1 = add i32 %n, -1
+    construct @create_worker(((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %sync)
+    emit %to_create(i32 %n_m1, ((i8)) %rd_acq, ((i8)) %rd_rel, ((i8)) %wr_acq, ((i8)) %wr_rel, (i8) %sync)
+    finish
+
+  end:
+    finish
+  }
+}
+

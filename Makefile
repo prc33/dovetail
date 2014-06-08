@@ -1,6 +1,6 @@
-BENCHMARKS = fib quicksort nqueens locks barrier
+BENCHMARKS = fib quicksort nqueens locks barrier blackscholes
 
-RUNTIME	= work.c atomics.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c util.ll arrays.c
+RUNTIME	= work.c atomics.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c util.ll arrays.c util_c.c
 BIN	= bin
 BUILD	= build
 BOEHM	= ~/boehm
@@ -11,7 +11,7 @@ LINK	= llvm-link
 OPT	= opt -instcombine -std-compile-opts -std-link-opts -O3
 LLC	= llc -O3
 ASM	= gcc
-LIBS	= $(BOEHM)/lib/libgc.a -lpthread
+LIBS	= $(BOEHM)/lib/libgc.a -lpthread -lm
 JCAMC	= $(BIN)/jcamc
 CC	= gcc -std=c99 -O3 -Wall
 WOOLC	= gcc -std=gnu99 -O3 -Wall -DWOOL -I $(WOOL) $(WOOL)/wool.o
