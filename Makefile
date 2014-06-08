@@ -1,4 +1,4 @@
-BENCHMARKS = fib quicksort nqueens locks barrier blackscholes
+BENCHMARKS = fib quicksort nqueens locks barrier rwlock blackscholes
 
 RUNTIME	= work.c atomics.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c util.ll arrays.c util_c.c
 BIN	= bin
