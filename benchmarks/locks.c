@@ -13,8 +13,11 @@
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void work() {
-  for(int i = 0; i < ITERATIONS; i++) {
+  int i = 0;
+
+  while(i < ITERATIONS) {
     pthread_mutex_lock(&mutex);
+    i++;
     pthread_mutex_unlock(&mutex);
   }
 }
