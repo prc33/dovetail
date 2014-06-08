@@ -43,14 +43,14 @@ struct node {
   uint32_t      dummy;// for alignment purposes
 };
 
-typedef volatile struct node node_t;
+typedef struct node node_t;
 
 bool llvm_cas_ptr(node_t **, node_t *, node_t *);
 
 /*
  * Queue along with list of associated transitions.
  */
-typedef volatile struct {
+typedef struct {
   struct node  *head;
   struct node  *tail;
 } queue_t;
@@ -62,6 +62,7 @@ __attribute__((always_inline)) void slow_queue_init(queue_t *queue, size_t size)
   // Note that GC_MALLOC zeroes memory, so sentinel node doesn't need further setup (CONSUMED must be 0).
   queue->head = (node_t *) GC_MALLOC(sizeof(node_t));
   queue->tail = queue->head;
+  llvm_atomic_fence();
 
   if(queue->head == NULL) {    
     fprintf(stderr, "Out of memory (slow_queue_init)\n");
@@ -84,6 +85,7 @@ __attribute__((always_inline)) node_t *slow_queue_allocate(queue_t *queue, size_
   }
   
   node->status = PENDING;
+  llvm_atomic_fence();
 
   return node;
 }
@@ -101,11 +103,11 @@ __attribute__((always_inline)) void *slow_queue_data(queue_t *queue, node_t *nod
 __attribute__((always_inline)) void slow_queue_enqueue(queue_t *queue, node_t *node) {
   // Keep retrying as necessary until the node is in the queue.
   while(true) {
-    node_t *tail = queue->tail;
-    node_t *next = tail->next;
+    node_t *tail = llvm_atomic_load_ptr_seqcst(&queue->tail);
+    node_t *next = llvm_atomic_load_ptr_seqcst(&tail->next);
     
     // Only proceed if the reads of 'tail' and 'next' were consistent.
-    if(tail == queue->tail) {
+    if(tail == llvm_atomic_load_ptr_seqcst(&queue->tail)) {
       // Is 'tail' the real tail?
       if(next == NULL) {
         // Try to link in the new node (exit on success).
@@ -126,7 +128,7 @@ __attribute__((always_inline)) void slow_queue_enqueue(queue_t *queue, node_t *n
  * Checks whether the given message has been used up.
  */
 __attribute__((always_inline)) bool slow_queue_is_consumed(queue_t *queue, node_t *node) {
-  return (node->status == CONSUMED);
+  return (llvm_atomic_load_seqcst(&node->status) == CONSUMED);
 }
 
 /*
@@ -138,14 +140,14 @@ __attribute__((always_inline)) bool slow_queue_is_consumed(queue_t *queue, node_
  */
 __attribute__((always_inline)) void *slow_queue_find(queue_t *queue, bool *retry) {
   // 'head' is always a dummy value, so we can ignore it for the search.
-  node_t *node = queue->head;
+  node_t *node = llvm_atomic_load_ptr_seqcst(&queue->head);
 
   while(true) {
-    node_t *next = node->next;
-    node_t *tail = queue->tail;
+    node_t *next = llvm_atomic_load_ptr_seqcst(&node->next);
+    node_t *tail = llvm_atomic_load_ptr_seqcst(&queue->tail);
 
     // Check that the reads were consistent.
-    if(next == node->next) {
+    if(next == llvm_atomic_load_ptr_seqcst(&node->next)) {
       // Check we're not working beyond 'tail' ('tail' will never move back).
       if(node == tail) {
         // We've searched the whole queue, not found a pending message.
@@ -157,7 +159,7 @@ __attribute__((always_inline)) void *slow_queue_find(queue_t *queue, bool *retry
         }
       //
       } else {
-        switch(next->status) {
+        switch(llvm_atomic_load_seqcst(&next->status)) {
           // Found a PENDING message.
           case PENDING:
             return next;
@@ -198,7 +200,7 @@ __attribute__((always_inline)) bool slow_queue_try_claim(queue_t *queue, node_t 
  * Reverts a claimed message to pending.
  */
 __attribute__((always_inline)) void slow_queue_revert(queue_t *queue, node_t *node) {
-  node->status = PENDING;
+  llvm_atomic_store_seqcst(&node->status, PENDING);
 }
 
 
@@ -206,6 +208,6 @@ __attribute__((always_inline)) void slow_queue_revert(queue_t *queue, node_t *no
  * Reverts a claimed message to pending.
  */
 __attribute__((always_inline)) void slow_queue_consume(queue_t *queue, node_t *node) {
-  node->status = CONSUMED;
+  llvm_atomic_store_seqcst(&node->status, CONSUMED);
 }
 

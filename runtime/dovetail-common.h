@@ -32,8 +32,10 @@
 
 uint32_t llvm_atomic_load(uint32_t *);
 uint32_t llvm_atomic_load_acquire(uint32_t *);
+uint32_t llvm_atomic_load_seqcst(uint32_t *);
 void llvm_atomic_store(uint32_t *, uint32_t);
 void llvm_atomic_store_release(uint32_t *, uint32_t);
+void llvm_atomic_store_seqcst(uint32_t *, uint32_t);
 void llvm_atomic_fence();
 bool llvm_cas(uint32_t *, uint32_t, uint32_t);
 

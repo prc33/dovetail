@@ -302,7 +302,7 @@ let compile_program p =
             end;
 
             (Llvm.builder_at_end context new_commit, new_revert)
-          ) ~init:(bb, next_transition) in
+          ) ~init:(bb, loop (* if a claim fails, need to retry *)) in
 
           (* Complete block that deals with success. *)
           let data = List.map msgs (fun (name,msg,chan) ->
@@ -311,7 +311,9 @@ let compile_program p =
               value
             else
               let ptr = chan.Runtime.slow_data msg ("data_ptr." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
-              Llvm.build_load ptr ("data." ^ (string_of_int transition.tid) ^ "." ^ name) bb
+              let value = Llvm.build_load ptr ("data." ^ (string_of_int transition.tid) ^ "." ^ name) bb in
+              Llvm.set_volatile true value;
+              value
           ) in
 
           Llvm.build_call build (Array.of_list (worker::inst::data)) "" bb |> ignore;

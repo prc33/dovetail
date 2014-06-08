@@ -99,7 +99,7 @@ let slow_impl impl msg_t tf =
       (fun value s bb ->
          let msg = Llvm.build_call allocate [| channel; size |] s bb in
          let ptr = Llvm.build_call casted [| channel; msg |] (s ^ ".data") bb in
-         Llvm.build_store value ptr bb |> ignore;
+         Llvm.build_store value ptr bb |> Llvm.set_volatile true;
          Llvm.build_call enqueue [| channel; msg |] "" bb |> ignore;
          msg);
     slow_find        = (fun retry -> Llvm.build_call find [| channel; retry |]);

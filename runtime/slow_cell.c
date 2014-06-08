@@ -35,7 +35,7 @@
 /*
  * Cell version of a queue. The version is used to prevent the ABA problem occuring.
  */
-typedef volatile struct {
+typedef struct {
   union {
     void *value;
     struct {
@@ -46,6 +46,7 @@ typedef volatile struct {
 } queue_t;
 
 bool llvm_cas_ptr(void **, void *, void *);
+void llvm_atomic_store_ptr(void **, void *);
 
 /*
  * Creates a new queue with no cell yet attached.
@@ -54,13 +55,14 @@ __attribute__((always_inline)) void slow_cell_init(queue_t *queue, size_t size) 
   // Not required as instance allocated with GC_MALLOC which zeroes memory
   // queue->version = 0;
   // queue->status  = CONSUMED;
+  llvm_atomic_fence();
 }
 
 /*
  * Returns the new version for the cell.
  */
 __attribute__((always_inline)) int32_t slow_cell_allocate(queue_t *queue, size_t size) {
-  return queue->version + 1;
+  return llvm_atomic_load_seqcst(&queue->version) + 1;
 }
 
 /*
@@ -76,8 +78,10 @@ __attribute__((always_inline)) void *slow_cell_data(queue_t *queue, int32_t vers
  */
 __attribute__((always_inline)) void slow_cell_enqueue(queue_t *queue, int32_t version) {// count=snapshot (assert snapshot=count+1), set as pending
   // asset queue.version == version - 1
-  queue->version = version;
-  queue->status = PENDING;
+
+  // Hopefully ensures this write is atomic (TODO: can we be sure that queue is 8-byte aligned?).
+  queue_t new = (queue_t) { .version = version, .status = PENDING };
+  llvm_atomic_store_ptr_seqcst(&queue->value, new.value);
 }
 
 /*
@@ -86,12 +90,12 @@ __attribute__((always_inline)) void slow_cell_enqueue(queue_t *queue, int32_t ve
  */
 __attribute__((always_inline)) int32_t slow_cell_find(queue_t *queue, bool *retry) {
   while(true) {
-    int32_t version = queue->version;
-    int32_t status = queue->status;
+    int32_t version = llvm_atomic_load_seqcst(&queue->version);
+    int32_t status = llvm_atomic_load_seqcst(&queue->status);
  
     // Make sure we get a consistent read.
-    if(version == queue->version) {
-      switch(queue->status) {
+    if(version == llvm_atomic_load_seqcst(&queue->version)) {
+      switch(status) {
         case PENDING:
           return version;
         case CLAIMED:
@@ -119,14 +123,14 @@ __attribute__((always_inline)) bool slow_cell_try_claim(queue_t *queue, int32_t 
  * Reverts a claimed message to pending.
  */
 __attribute__((always_inline)) void slow_cell_revert(queue_t *queue, int32_t version) {
-  queue->status = PENDING; // assert version == version
+  llvm_atomic_store_seqcst(&queue->status, PENDING); // assert version == version
 }
 
 /*
  * Marks the cell as empty.
  */
 __attribute__((always_inline)) void slow_cell_consume(queue_t *queue, int32_t version) {
-  queue->status = CONSUMED; // assert version == version
+  llvm_atomic_store_seqcst(&queue->status, CONSUMED); // assert version == version
 }
 
 /*
@@ -134,5 +138,5 @@ __attribute__((always_inline)) void slow_cell_consume(queue_t *queue, int32_t ve
  */
 __attribute__((always_inline)) bool slow_cell_is_consumed(queue_t *queue, int32_t version) {
   // Double check ensures consistent read.
-  return (queue->version != version) || (queue->status == CONSUMED) || (queue->version != version);
+  return (llvm_atomic_load_seqcst(&queue->version) != version) || (llvm_atomic_load_seqcst(&queue->status) == CONSUMED) || (llvm_atomic_load_seqcst(&queue->version) != version);
 }
