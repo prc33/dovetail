@@ -26,7 +26,7 @@
 #include <math.h>
 #include <string.h>
 
-#define fptype        float
+#define fptype        double
 
 #define NUM_RUNS      5000
 #define INV_SQRT_2PI  0.39894228040143270286
@@ -159,7 +159,7 @@ void *work(void *tid_ptr) {
       fptype priceDelta = data[i].DGrefval - prices[i];
 
       if(fabs(priceDelta) >= 1e-4){
-        fprintf(stderr, "Error on %d. Computed=%.5f, Ref=%.5f, Delta=%.5f\n", i, prices[i], data[i].DGrefval, priceDelta);
+        fprintf(stderr, "Error on %d. Computed=%.5lf, Ref=%.5lf, Delta=%.5lf\n", i, prices[i], data[i].DGrefval, priceDelta);
       }
     }
 #ifndef WOOL
@@ -186,10 +186,11 @@ int main(int argc, char **argv) {
   argc = wool_init(argc, argv);
 #endif
 
-  if(argc < 2) {
 #ifdef WOOL
+  if(argc < 2) {
     fprintf(stderr, "Usage: blackscholes [woolopt] <input_file> [output_file]\n");
 #else
+  if(argc < 3) {
     fprintf(stderr, "Usage: blackscholes <threads> <input_file> [output_file]\n");
 #endif
     return 1;
@@ -226,7 +227,7 @@ int main(int argc, char **argv) {
   prices = (fptype *) malloc(option_count * sizeof(fptype));
 
   for(int i = 0; i < option_count; i++) {
-    if(fscanf(input, "%f %f %f %f %f %f %c %f %f", &data[i].s, &data[i].strike, &data[i].r, &data[i].divq, &data[i].v, &data[i].t, &data[i].OptionType, &data[i].divs, &data[i].DGrefval) != 9) {
+    if(fscanf(input, "%lf %lf %lf %lf %lf %lf %c %lf %lf", &data[i].s, &data[i].strike, &data[i].r, &data[i].divq, &data[i].v, &data[i].t, &data[i].OptionType, &data[i].divs, &data[i].DGrefval) != 9) {
       fprintf(stderr, "Unable to read option data %d from `%s'.\n", i, argv[1]);
       fclose(input);
       exit(-1);
@@ -279,7 +280,7 @@ int main(int argc, char **argv) {
     }
 
     for(int i = 0; i < option_count; i++) {
-      if(fprintf(output, "%.18f\n", prices[i]) < 0) {
+      if(fprintf(output, "%.4lf\n", prices[i]) < 0) {
         fprintf(stderr, "Unable to write price %d to file `%s'.\n", i, argv[2]);
         fclose(output);
         exit(-1);
