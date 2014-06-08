@@ -1,4 +1,4 @@
-BENCHMARKS = fib quicksort nqueens locks
+BENCHMARKS = fib quicksort nqueens locks barrier
 
 RUNTIME	= work.c atomics.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c util.ll arrays.c
 BIN	= bin
