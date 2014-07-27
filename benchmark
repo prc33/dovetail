@@ -8,18 +8,23 @@ repeats=20
 sqlfile=$(tempfile)
 
 show_progress() {
-  n=$(( $n + 1 ))
-  p=$(( $n * 100 / $repeats ))
+  p=$(( $1 * 100 / $repeats ))
   echo -ne ${command_to_run}' ('${p}'%) \r'
 }
  
 run_tests() {
   n=0
 
+  show_progress 0
+
   for (( i = 1; i <= $repeats ; i++ ))
   do
-    (TIMEFORMAT="insert into timings (benchmark, version, threads, n, t_real, t_user) values ('${benchmark}', '${version}',${threads},${argument},%3R,%3U);"; time ${command_to_run} > /dev/null 2>&1) 2>>${sqlfile}
-    show_progress
+    OUT=$(TIMEFORMAT="insert into timings (benchmark, version, threads, n, t_real, t_user) values ('${benchmark}', '${version}',${threads},${argument},%3R,%3U);"; { time ${command_to_run} > /dev/null; } 2>&1)
+
+    if (($? == 0)); then
+      echo $OUT >> ${sqlfile}
+      show_progress $i
+    fi
   done;
 
   echo -ne '\n'

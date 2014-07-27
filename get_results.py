@@ -12,7 +12,7 @@ def get_realtime(benchmark, version, threads=None, n=None):
         where = where + "threads=" + str(threads) + " AND "
     
     if n is not None:
-        where = where + "n=" + str(n) + ", "
+        where = where + "n=" + str(n) + " AND "
     
     where = where + 'benchmark="' + benchmark + '" AND version="' + version + '"'
     
