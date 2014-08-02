@@ -17,11 +17,18 @@ let print_token token = match token with
 
 let print_tokens stream = Stream.iter print_token stream
 
-let get_stream f = Lexer.lex (Stream.of_channel (open_in f))
-
 let main f1 f2 = 
-  Codegen.compile_program (Parser.parse (get_stream f1));
-  Llvm_bitwriter.write_bitcode_file Function.llmod f2
+  let channel = open_in f1 in
+  let stream = Lexer.lex (Stream.of_channel channel) in
+  let parsed = try Parser.parse stream with e ->
+                begin match Stream.peek stream with
+                | None -> ()
+                | Some t -> print_token t; print_int (pos_in channel); print_newline ()
+                end;
+                raise e
+  in
+    Codegen.compile_program parsed;
+    Llvm_bitwriter.write_bitcode_file Function.llmod f2
 
 let () = match Sys.argv with
   | [|_; f1; f2|] -> ignore (main f1 f2)
