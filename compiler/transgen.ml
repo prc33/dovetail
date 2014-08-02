@@ -6,6 +6,7 @@
 open Jcam
 open Core.Std
 
+exception Undef_Label of string
 exception Undef_Var of string
 exception Undef_Const of string
 
@@ -69,9 +70,11 @@ let generate_block f instance block state =
     | Value.Null        -> Llvm.const_null t
   in
 
+  let get_block l = (match Map.find state.blocks l with Some x -> x | None -> raise (Undef_Label l)) in
+
   (* Position builder at correct block *)
   let bb = Llvm.builder_at_end context (match block.label with
-    | Some l -> Map.find_exn state.blocks l
+    | Some l -> get_block l
     | None   -> Llvm.entry_block f)
   in
 
@@ -79,8 +82,14 @@ let generate_block f instance block state =
   let worker = Llvm.param f 0 in
 
   let build_expr v s = function
-    | Expr.Add(t,a,b) -> let t = (s.types t) in Llvm.build_add (value t a s) (value t b s) v bb
-    | Expr.Sub(t,a,b) -> let t = (s.types t) in Llvm.build_sub (value t a s) (value t b s) v bb
+    | Expr.Add(t,a,b) -> let op = match t with
+                                  | Type.Integer(_) -> Llvm.build_add
+                                  | Type.Float(_) -> Llvm.build_fadd in
+                         let t = (s.types t) in op (value t a s) (value t b s) v bb
+    | Expr.Sub(t,a,b) -> let op = match t with
+                                  | Type.Integer(_) -> Llvm.build_sub
+                                  | Type.Float(_) -> Llvm.build_fsub in
+                         let t = (s.types t) in op (value t a s) (value t b s) v bb
     | Expr.Mul(t,a,b) -> let op = match t with
                                   | Type.Integer(_) -> Llvm.build_mul
                                   | Type.Float(_) -> Llvm.build_fmul in
@@ -150,8 +159,8 @@ let generate_block f instance block state =
   (* Phi Nodes *)
   fold (fun (v,t,incoming) s ->
       let t = (s.types t) in
-      let old_value = Map.find_exn s.undef v in
-      let new_value = Llvm.build_phi (List.map incoming (fun (i,l) -> (value t i s, Map.find_exn s.blocks l))) v bb in
+      let old_value = (match Map.find s.undef v with Some x -> x | None -> raise (Stream.Error ("re-def of " ^ v))) in
+      let new_value = Llvm.build_phi (List.map incoming (fun (i,l) -> (value t i s, get_block l))) v bb in
       Llvm.replace_all_uses_with old_value new_value;
       (*Llvm.delete_global old_value;*)
     { s with values=Map.add s.values v new_value; undef=Map.remove s.undef v }  
@@ -161,7 +170,7 @@ let generate_block f instance block state =
   fold (fun i s -> match i with
     (* Assignments and Expressions *)
     | Instruction.Assign(v,e) ->
-        let old_value = Map.find_exn s.undef v in
+        let old_value = (match Map.find s.undef v with Some x -> x | None -> raise (Stream.Error ("re-def of " ^ v))) in
         let new_value = build_expr v s e in
         Llvm.replace_all_uses_with old_value new_value;
         (*Llvm.delete_global old_value;*)
@@ -177,7 +186,7 @@ let generate_block f instance block state =
     | Instruction.Construct(c,ps) ->
         let msg  = Llvm.undef (Typegen.structure s.types (List.map ps (fun (t,v) -> t))) |>
                    foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (s.types t) v s) i "" bb) ps in
-        Function.fast_call (Map.find_exn s.constructors c) [| worker; msg |] "" true bb |> ignore;
+        Function.fast_call (match Map.find s.constructors c with Some x -> x | None -> raise (Undef_Const c)) [| worker; msg |] "" true bb |> ignore;
         s
     (* Message Emissions *)
     | Instruction.Emit(v,ps) ->
@@ -193,8 +202,8 @@ let generate_block f instance block state =
   (* Terminator instruction *)
   begin match block.terminator with
   | Terminator.Finish      -> Llvm.build_ret_void bb |> ignore
-  | Terminator.Goto(l)     -> Llvm.build_br (Map.find_exn state.blocks l) bb |> ignore
-  | Terminator.Cond(v,a,b) -> Llvm.build_cond_br (value Runtime.bool_type v state) (Map.find_exn state.blocks a) (Map.find_exn state.blocks b) bb |> ignore
+  | Terminator.Goto(l)     -> Llvm.build_br (get_block l) bb |> ignore
+  | Terminator.Cond(v,a,b) -> Llvm.build_cond_br (value Runtime.bool_type v state) (get_block a) (get_block b) bb |> ignore
   end;
 
   state
