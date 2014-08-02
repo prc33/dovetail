@@ -1,0 +1,238 @@
+@blackscholes_count = extern (i32) -> i32
+@blackscholes_read = extern ([f64], [f64], [f64], [f64], [f64], [i8], [f64]) -> i32
+@blackscholes_compare = extern (f64, f64) -> i8
+
+@exp = extern (f64) -> f64
+@sqrt = extern (f64) -> f64
+@log = extern (f64) -> f64
+
+definition {
+  channel @create_async_barrier(i32, (i32), ((i8))) functional
+  channel %state(i32, (i32))                        mem
+  channel %inc(i8)
+
+  transition @create_async_barrier(i32 %count, (i32) %cont, ((i8)) %k) {
+    emit %state(i32 %count, (i32) %cont)
+    emit %k((i8) %inc)
+    finish
+  }
+
+  transition %state(i32 %count, (i32) %cont) %inc(i8 %dummy) {
+    %count_m1 = add i32 %count, -1
+    %done = cmp eq i32 %count_m1, 0
+    br %done, label %end, label %next
+  
+  next:
+    emit %state(i32 %count_m1, (i32) %cont)
+    finish
+
+  end:
+    emit %cont(i32 0)
+    finish
+  }
+}
+
+definition closed {
+  channel @cndf(f64, (f64))       functional
+  channel %a(f64)                 cell
+  channel %b(i1, f64, (f64))      cell
+
+  transition @cndf(f64 %x, (f64) %k) {
+    br label %entry
+
+  entry:
+    %sign = cmp slt f64 %x, 0.0
+    br %sign, label %neg, label %next
+
+  neg:
+    %minus_x = mul f64 %x, -1.0
+    br label %next
+
+  next:
+    %InputX = phi f64 [%x, %entry], [%minus_x, %neg]
+
+    %expIn1 = mul f64 -0.5, %InputX
+    %expIn2 = mul f64 %expIn1, %InputX
+    emit @exp(f64 %expIn2, (f64) %a)
+
+    %tmp = mul f64 0.2316419, %InputX
+    %tmp2 = add f64 %tmp, 1.0
+    
+    %xK2 = div f64 1.0, %tmp2
+    %xK2_2 = mul f64 %xK2, %xK2
+    %xK2_3 = mul f64 %xK2_2, %xK2
+    %xK2_4 = mul f64 %xK2_3, %xK2
+    %xK2_5 = mul f64 %xK2_4, %xK2
+  
+    %xLocal_1 = mul f64 %xK2, 0.319381530
+    %xLocal_2 = mul f64 %xK2_2, -0.356563782
+    %xLocal_3 = mul f64 %xK2_3, 1.781477937
+
+    %xLocalB_2 = add f64 %xLocal_2, %xLocal_3
+    %xLocalB_3 = mul f64 %xK2_4, -1.821255978
+    %xLocalC_2 = add f64 %xLocalB_2, %xLocalB_3
+    %xLocalC_3 = mul f64 %xK2_5, 1.330274429
+    %xLocalD_2 = add f64 %xLocalC_2, %xLocalC_3
+
+    %final = add f64 %xLocalD_2, %xLocal_1;
+    emit %b(i1 %sign, f64 %final, (f64) %k)
+    finish
+  }
+
+  transition %a(f64 %expValue) %b(i1 %sign, f64 %xLocal_1, (f64) %k) {
+    %xNPrimeOfX = mul f64 %expValue, 0.39894228040143270286
+    %xLocal = mul f64 %xLocal_1, %xNPrimeOfX
+    br %sign, label %neg, label %pos
+
+  neg:
+    emit %k(f64 %xLocal)
+    finish
+
+  pos:
+    %xLocal_sub = sub f64 1.0, %xLocal
+    emit %k(f64 %xLocal_sub)
+    finish
+  }
+}
+
+definition closed {
+  channel @create_worker(i32, f64, f64, f64, f64, f64, i8, f64, (i8))    functional
+  channel %do_blackscholes(i32, f64, f64, f64, f64, f64, i8, f64, (i8))  mem
+  channel %start(i32)                                                    cell
+  channel %a(f64)                                                        cell
+  channel %b(f64)                                                        cell
+  channel %c(f64)                                                        cell
+  channel %d(f64)                                                        cell
+  channel %e(f64)                                                        cell
+
+  transition @create_worker(i32 %repeats, f64 %s, f64 %strike, f64 %r, f64 %v, f64 %t, i8 %type, f64 %ref, (i8) %k) {
+    emit %do_blackscholes(i32 %repeats, f64 %s, f64 %strike, f64 %r, f64 %v, f64 %t, i8 %type, f64 %ref, (i8) %k)
+    emit %start(i32 0)
+    finish
+  }
+
+  transition %do_blackscholes(i32 %repeats, f64 %s, f64 %strike, f64 %r, f64 %v, f64 %t, i8 %type, f64 %ref, (i8) %k) %start(i32 %dummy) {
+    %x = div f64 %s, %strike
+    %y1 = mul f64 %r, %t
+    %y2 = mul f64 %y1, -1.0
+
+    emit @log(f64 %x, (f64) %a)
+    emit @sqrt(f64 %t, (f64) %b)
+    emit @exp(f64 %y2, (f64) %c)
+    emit %do_blackscholes(i32 %repeats, f64 %s, f64 %strike, f64 %r, f64 %v, f64 %t, i8 %type, f64 %ref, (i8) %k)
+    finish
+  }
+
+  transition %do_blackscholes(i32 %repeats, f64 %s, f64 %strike, f64 %r, f64 %v, f64 %t, i8 %type, f64 %ref, (i8) %k) %a(f64 %logValues) %b(f64 %sqrtTime) {
+    %xDen = mul f64 %v, %sqrtTime
+    %xPowerTerm1 = mul f64 %v, %v
+    %xPowerTerm2 = mul f64 %xPowerTerm1, 0.5
+
+    %d1_1 = add f64 %r, %xPowerTerm2
+    %d1_2 = mul f64 %d1_1, %t
+    %d1_3 = add f64 %d1_2, %logValues
+    %d1_4 = div f64 %d1_3, %xDen
+
+    %d2 = sub f64 %d1_4, %xDen
+
+    construct @cndf(f64 %d1_4, (f64) %d)
+    construct @cndf(f64 %d2, (f64) %e)
+    emit %do_blackscholes(i32 %repeats, f64 %s, f64 %strike, f64 %r, f64 %v, f64 %t, i8 %type, f64 %ref, (i8) %k)
+    finish
+  }
+
+  transition %do_blackscholes(i32 %repeats, f64 %s, f64 %strike, f64 %r, f64 %v, f64 %t, i8 %type, f64 %ref, (i8) %k) %c(f64 %expValue) %d(f64 %NofXd1) %e(f64 %NofXd2) {
+    %repeats_m1 = add i32 %repeats, -1
+    emit %do_blackscholes(i32 %repeats_m1, f64 %s, f64 %strike, f64 %r, f64 %v, f64 %t, i8 %type, f64 %ref, (i8) %k)
+
+    %FutureValueX = mul f64 %strike, %expValue
+    
+    %type_br = cmp eq i8 %type, 0
+    %done = cmp eq i32 %repeats, 1
+    br %type_br, label %type_0, label %type_1
+
+  type_0:
+    %x_0 = mul f64 %s, %NofXd1
+    %y_0 = mul f64 %FutureValueX, %NofXd2
+    br %done, label %end, label %next
+
+  type_1:
+    %NegNofXd1 = sub f64 1.0, %NofXd1
+    %NegNofXd2 = sub f64 1.0, %NofXd2
+    %x_1 = mul f64 %FutureValueX, %NegNofXd2
+    %y_1 = mul f64 %s, %NegNofXd1
+    br %done, label %end, label %next
+
+  next:
+    emit %start(i32 0)
+    finish
+
+  end:
+    %x = phi f64 [%x_0, %type_0], [%x_1, %type_1]
+    %y = phi f64 [%y_0, %type_0], [%y_1, %type_1]
+    %result = sub f64 %x, %y
+    emit @blackscholes_compare(f64 %result, f64 %ref, (i8) %k)
+    finish
+  }
+}
+
+definition {
+  channel @main(i32, (i32))                                                       functional
+  channel %barrier((i8))                                                          cell
+  channel %input(i32)                                                             cell
+  channel %to_create(i32, i32, [f64], [f64], [f64], [f64], [f64], [i8], [f64], (i8))   functional
+  channel %tmp0((i32))                                                            cell
+  channel %tmp1(i32)                                                               cell
+  channel %tmp2([f64], [f64], [f64], [f64], [f64], [i8], [f64])                   cell
+  channel %read_complete(i32)                                                     cell
+
+  transition @main(i32 %repeats, (i32) %k) {
+    emit %tmp0((i32) %k)
+    emit %tmp1(i32 %repeats)
+    emit @blackscholes_count(i32 0, (i32) %input)
+    finish
+  }
+
+  transition %input(i32 %count) %tmp0((i32) %k) {
+    construct @create_async_barrier(i32 %count, (i32) %k, ((i8)) %barrier)
+
+    %s = array [f64 x %count]
+    %strike = array [f64 x %count]
+    %r = array [f64 x %count]
+    %v = array [f64 x %count]
+    %t = array [f64 x %count]
+    %type = array [i8 x %count]
+    %ref = array [f64 x %count]
+
+    emit %tmp2([f64] %s, [f64] %strike, [f64] %r, [f64] %v, [f64] %t, [i8] %type, [f64] %ref)
+    emit @blackscholes_read([f64] %s, [f64] %strike, [f64] %r, [f64] %v, [f64] %t, [i8] %type, [f64] %ref, (i32) %read_complete)
+    finish
+  }
+
+  transition %tmp1(i32 %repeats) %barrier((i8) %sync) %tmp2([f64] %s, [f64] %strike, [f64] %r, [f64] %v, [f64] %t, [i8] %type, [f64] %ref) %read_complete(i32 %count){
+    emit %to_create(i32 %count, i32 %repeats, [f64] %s, [f64] %strike, [f64] %r, [f64] %v, [f64] %t, [i8] %type, [f64] %ref, (i8) %sync)
+    finish
+  }
+
+  transition %to_create(i32 %i, i32 %repeats, [f64] %s, [f64] %strike, [f64] %r, [f64] %v, [f64] %t, [i8] %type, [f64] %ref, (i8) %sync) {
+    %done = cmp eq i32 %i, 0
+    br %done, label %end, label %next
+
+  next:
+    %i_m1 = add i32 %i, -1
+    %this_s = load [f64] %s, %i
+    %this_strike = load [f64] %strike, %i
+    %this_r = load [f64] %r, %i
+    %this_v = load [f64] %v, %i
+    %this_t = load [f64] %t, %i
+    %this_type = load [i8] %type, %i
+    %this_ref = load [f64] %ref, %i
+    construct @create_worker(i32 %repeats, f64 %this_s, f64 %this_strike, f64 %this_r, f64 %this_v, f64 %this_t, i8 %this_type, f64 %this_ref, (i8) %sync)
+    emit %to_create(i32 %i_m1, i32 %repeats, [f64] %s, [f64] %strike, [f64] %r, [f64] %v, [f64] %t, [i8] %type, [f64] %ref, (i8) %sync)
+    finish
+
+  end:
+    finish
+  }
+}
+
