@@ -220,13 +220,13 @@ definition {
 
   next:
     %i_m1 = add i32 %i, -1
-    %this_s = load [f64] %s, %i
-    %this_strike = load [f64] %strike, %i
-    %this_r = load [f64] %r, %i
-    %this_v = load [f64] %v, %i
-    %this_t = load [f64] %t, %i
-    %this_type = load [i8] %type, %i
-    %this_ref = load [f64] %ref, %i
+    %this_s = load [f64] %s, %i_m1
+    %this_strike = load [f64] %strike, %i_m1
+    %this_r = load [f64] %r, %i_m1
+    %this_v = load [f64] %v, %i_m1
+    %this_t = load [f64] %t, %i_m1
+    %this_type = load [i8] %type, %i_m1
+    %this_ref = load [f64] %ref, %i_m1
     construct @create_worker(i32 %repeats, f64 %this_s, f64 %this_strike, f64 %this_r, f64 %this_v, f64 %this_t, i8 %this_type, f64 %this_ref, (i8) %sync)
     emit %to_create(i32 %i_m1, i32 %repeats, [f64] %s, [f64] %strike, [f64] %r, [f64] %v, [f64] %t, [i8] %type, [f64] %ref, (i8) %sync)
     finish

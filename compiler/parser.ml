@@ -290,7 +290,7 @@ and parse_value = parser
   | [< 'Token.Symbol '-'; stream >] ->
     begin parser
       | [< 'Token.Integer i >] -> Value.Integer (-i)
-      | [< 'Token.Float f >] -> Value.Float (~f)
+      | [< 'Token.Float f >] -> Value.Float (-.f)
     end stream;
   | [< 'Token.GId s >] -> Value.Constant s
   | [< 'Token.Kwd "null" >] -> Value.Null
