@@ -44,7 +44,7 @@
  * queues).
  */
 #ifndef WORK_LIMIT
-  #define WORK_LIMIT 1024
+  #define WORK_LIMIT 16384 // MUST BE A POWER OF 2
 #endif
 
 /*
