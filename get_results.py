@@ -21,7 +21,7 @@ def get_realtime(benchmark, version, threads=None, n=None):
     rows = cur.fetchall()
     
     if len(rows) == 0:
-      return None
+      return float('nan') if threads else (numpy.array([]), numpy.array([]))
     elif len(rows) == 1:
       return rows[0]['time']
     else:
