@@ -6,6 +6,8 @@
 open Jcam
 open Core.Std
 
+exception Exception of string
+
 let fold  f l s = List.fold_left l ~init:s ~f:(fun s x -> f x s)
 
 (** LLVM Code Generation                                                      *)
@@ -33,8 +35,18 @@ let compile_program p =
     in String.Map.of_alist_exn (List.concat_map definitions (fun def -> (List.filter_map def.channels f)))
   in
 
+  let foo definitions =
+    let f c =
+        if c.constructor then
+          Some (c.name, ref (fun a b c -> raise (Exception "Ooops")))
+        else
+          None
+    in String.Map.of_alist_exn (List.concat_map definitions (fun def -> (List.filter_map def.channels f)))
+  in
+
   let slow_constructors = declare_constructors p.definitions "slow" in
   let fast_constructors = declare_constructors (List.filter p.definitions (fun def -> List.mem def.dattrs DAttribute.Closed)) "fast" in
+  let delayed_fast = foo (List.filter p.definitions (fun def -> List.mem def.dattrs DAttribute.Closed)) in
 
   let generate_externs (name, ts, kt) constants =
     (* TODO: these should probably all be queued up as matches to keep with the parallel ethos *)
@@ -121,7 +133,7 @@ let compile_program p =
       let fast_state = Transgen.get_state types fast_constructors (declare_emits "fast") constants in
 
       (* Compile transitions (keeping track of functions for emit functions later) *)
-      let compiled_transitions = List.map def.transitions (fun x -> (x, Transgen.generate_fast_transition fast_state (Llvm.pointer_type fast_instance) x)) in
+      let compiled_transitions = List.map def.transitions (fun x -> (x, Transgen.generate_immediate_transition fast_state (Llvm.pointer_type fast_instance) x)) in
 
       (* Compilation function for fast emit bodies *)
       let generate_fast_emit f c inst channels value bb tail_call = 
@@ -194,15 +206,31 @@ let compile_program p =
         if c.constructor then
           let f  = Map.find_exn fast_constructors c.name in
           let bb = Llvm.builder_at_end context (Llvm.entry_block f) in
-          let inst = Llvm.build_alloca fast_instance "inst" bb in
-          
-          let channels = Map.mapi fast_channels (fun ~key ~data:(i,impl) ->
-            let chan = impl (Llvm.build_struct_gep inst i (key ^ ".raw") bb) key bb in
-            chan.Runtime.fast_init bb;
-            chan
+
+          let do_init = fun bb -> (
+            let inst = Llvm.build_alloca fast_instance "inst" bb in
+            
+            let channels = Map.mapi fast_channels (fun ~key ~data:(i,impl) ->
+              let chan = impl (Llvm.build_struct_gep inst i (key ^ ".raw") bb) key bb in
+              chan.Runtime.fast_init bb;
+              chan
+            ) in
+
+            inst
           ) in
 
-          generate_fast_emit f c inst channels (Llvm.param f 1) bb false
+          let (constructor_transition,immediate) = List.find_exn compiled_transitions ~f:(fun (t,b) -> (List.map t.pattern fst) = [ c.name ]) in
+          Llvm.build_call immediate [| (Llvm.param f 0); do_init bb; (Llvm.param f 1) |] "" bb |> ignore;
+          Llvm.build_ret_void bb |> ignore;
+
+          (* TODO: also generate a delayed constructor? *)
+          let delayed = Transgen.generate_queued_transition fast_state (Llvm.pointer_type fast_instance) constructor_transition (Some do_init) "delayed" in
+
+          (Map.find_exn delayed_fast c.name) := (fun worker value bb -> (
+            let inst = Llvm.const_null (Llvm.pointer_type fast_instance) in Llvm.build_call delayed [| worker; inst; value |] "" bb |> ignore;
+            (*Function.fast_call f [| worker; value |] "" true bb |> ignore;*)
+            Llvm.build_ret_void bb |> ignore
+          ))
         (* Normal (worker, instance, value): bitcast instance pointer, extract channel pointers, then build body *)
         else
           let f    = Map.find_exn fast_state.values c.name in
@@ -225,7 +253,7 @@ let compile_program p =
     let slow_state = Transgen.get_state types slow_constructors (declare_emits "slow") constants in
 
     (* Compile transitions (keeping track of functions for emit functions later) *)
-    let compiled_transitions = List.map def.transitions (fun x -> (x, Transgen.generate_slow_transition slow_state (Llvm.pointer_type slow_instance) x)) in
+    let compiled_transitions = List.map def.transitions (fun x -> (x, Transgen.generate_queued_transition slow_state (Llvm.pointer_type slow_instance) x None "")) in
     
     (* Compilation function for slow emit bodies *)
     let generate_slow_emit f c inst channels value bb =
@@ -342,7 +370,7 @@ let compile_program p =
         let bb        = Llvm.builder_at_end context (Llvm.entry_block f) in
         let slow_mode = Llvm.append_block context "slow_mode" f in
         
-        begin match Map.find fast_constructors c.name with
+        begin match Map.find delayed_fast c.name with
         (* Fast constructor available *)
         | Some fast_constructor ->
           let fast_mode = Llvm.append_block context "fast_mode" f in
@@ -350,8 +378,7 @@ let compile_program p =
           Llvm.build_cond_br check fast_mode slow_mode bb |> ignore;
 
           let bb = Llvm.builder_at_end context fast_mode in
-          Function.fast_call fast_constructor (Llvm.params f) "" true bb |> ignore;
-          Llvm.build_ret_void bb |> ignore
+          (!fast_constructor) (Llvm.param f 0) (Llvm.param f 1) bb
         (* Only slow mode *)
         | None ->
           Llvm.build_br slow_mode bb |> ignore
