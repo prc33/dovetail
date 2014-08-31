@@ -21,7 +21,7 @@ RUNTIME_LLVM = $(addprefix runtime/,$(filter %.ll,$(RUNTIME)))
 RUNTIME_C = $(filter %.c,$(RUNTIME))
 RUNTIME_CO = $(addprefix $(BUILD)/runtime/,$(RUNTIME_C:.c=.ll))
 
-BM_ALL  = $(BENCHMARKS) $(addsuffix _base,$(BENCHMARKS)) $(addsuffix _wool,$(BENCHMARKS)) $(addsuffix .class,$(BENCHMARKS))
+BM_ALL  = $(BENCHMARKS) $(addsuffix _base,$(BENCHMARKS)) $(addsuffix _wool,$(BENCHMARKS)) $(addsuffix .class,$(BENCHMARKS)) fib_inline
 BM_EXEC = $(addprefix $(BIN)/,$(BM_ALL))
 
 all: benchmarks runtime compiler
