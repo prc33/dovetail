@@ -221,7 +221,11 @@ __attribute__((always_inline)) match_t *match_steal(worker_t *self, match_t *des
  * 
  */
 __attribute__((always_inline)) bool dovetail_go_fast(worker_t *self) {
+#if DOVETAIL_DISABLEFAST
+  return false;
+#else
   return (self->bottom - self->top) > self->fast_threshold;
+#endif
 }
 
 /*
