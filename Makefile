@@ -6,7 +6,7 @@ BUILD	= build
 BOEHM	= ~/boehm
 WOOL	= ~/Desktop/wool-0.1.5alpha
 
-CLANG	= clang -g -S -I $(BOEHM)/include/ -O0 -emit-llvm
+CLANG	= clang -g -S -I $(BOEHM)/include/ -O0 -emit-llvm -DDOVETAIL_DISABLEFAST=$(DOVETAIL_DISABLEFAST)
 LINK	= llvm-link
 OPT	= opt -instcombine -std-compile-opts -std-link-opts -O3
 LLC	= llc -O3

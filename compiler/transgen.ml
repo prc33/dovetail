@@ -231,21 +231,22 @@ let generate_body f blocks instance state =
 
 (* Generates match builder of type (Runtime.worker_t, instance_t, message+) -> void *)
 (* Generates internal transition of type (Runtime.worker_t; [instance_t, message+]) -> void *)
-let generate_slow_transition state instance_t t =
+(* If passing in non-None inst_load then the value passed to the builder for instance is ignored *)
+let generate_queued_transition state instance_t t inst_load s =
   (* Initial match structure definition *)
-  let match_type = Llvm.named_struct_type context ("match." ^ string_of_int t.tid) in
+  let match_type = Llvm.named_struct_type context ("match." ^ (string_of_int t.tid) ^ s) in
   let match_parts = instance_t :: (pattern_types state.types t.pattern) in
 
   (* Define transition body functions *)
   let slow_type = Llvm.function_type void_type [| Runtime.worker_t; Llvm.pointer_type match_type |] in
   let build_type = Llvm.function_type void_type (Array.of_list (Runtime.worker_t::match_parts)) in
-  let slow = Function.fast ("slow." ^ string_of_int t.tid) slow_type in
+  let slow = Function.fast ("slow." ^ (string_of_int t.tid) ^ s) slow_type in
 
   (* Finalise match data structure type *)
   Llvm.struct_set_body match_type (Array.of_list ((Llvm.pointer_type slow_type)::match_parts)) false;
 
   (* Generate match building function (using slow version of transition) *)
-  let build = Function.inlined ("build_match." ^ string_of_int t.tid) build_type
+  let build = Function.inlined ("build_match." ^ (string_of_int t.tid) ^ s) build_type
   in (
     let bb = Llvm.builder_at_end context (Llvm.entry_block build) in
 
@@ -276,6 +277,8 @@ let generate_slow_transition state instance_t t =
   state |> foldi (fun (i,(_,ts)) -> foldi (fun (j,(t,var)) s -> { s with values=Map.add s.values
     var
     (
+      (* TODO: Refactor so that this does a load on the whole struct, then extractvalue for each element - probably more efficient *)
+      (* TODO: Try to push the resulting common stuff into generate_body *)
       let ptr = Llvm.build_in_bounds_gep m [| make_int 0; make_int (i+2); make_int j |] (var ^ "_ptr") bb in
       Llvm.build_load ptr var bb
     )
@@ -283,13 +286,15 @@ let generate_slow_transition state instance_t t =
   
   (* Define body for slow version *)
   generate_body slow t.blocks (
-    let ptr = Llvm.build_struct_gep m 1 "inst_ptr" bb in
-    Llvm.build_load ptr "inst" bb
+    match inst_load with
+    | Some il -> il bb
+    | None    -> let ptr = Llvm.build_struct_gep m 1 "inst_ptr" bb in
+                 Llvm.build_load ptr "inst" bb
   );
   build
 
 (* Generates LLVM function of type (Runtime.worker_t, instance_t, message+) -> void *)
-let generate_fast_transition state instance_t t =
+let generate_immediate_transition state instance_t t =
   let match_parts = instance_t :: (pattern_types state.types t.pattern) in
   let fast_type = Llvm.function_type void_type (Array.of_list (Runtime.worker_t::match_parts)) in
   let fast = Function.inlined ("fast." ^ string_of_int t.tid) fast_type in

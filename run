@@ -31,8 +31,11 @@ test_cc() {
 
 test_optlevel() {
   make clean-benchmarks
-  DOVETAIL_OPTLEVEL=$2 make benchmarks
+  DOVETAIL_OPTLEVEL=$2 make bin/fib
   jcam fib $1 40
+}
+
+test_all() {
   jcam nqueens $1 13
   jcam quicksort $1 30000000
   jcam locks $1 1
@@ -54,6 +57,14 @@ test_optlevel functional  1
 test_optlevel closed      2
 test_optlevel bounds      3
 test_optlevel all         4
+
+make clean-benchmarks
+DOVETAIL_TAILCALLS=false DOVETAIL_DISABLEFAST=1 make benchmarks
+test_all no-fast
+
+make clean-benchmarks
+DOVETAIL_TAILCALLS=false make benchmarks
+test_all all
 
 make clean-benchmarks
 make benchmarks
