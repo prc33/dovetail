@@ -36,6 +36,8 @@ test_optlevel() {
 }
 
 test_all() {
+  jcam fib $1 40
+  jcam fib_inline $1 40
   jcam nqueens $1 13
   jcam quicksort $1 30000000
   jcam locks $1 1
@@ -44,6 +46,7 @@ test_all() {
   jcam rwlock $1 16
   jcam barrier $1 1
   jcam barrier $1 16
+  jcam blackscholes $1 5000
 }
 
 test_cc stdc      0
@@ -58,11 +61,12 @@ test_optlevel closed      2
 test_optlevel bounds      3
 test_optlevel all         4
 
-make clean-benchmarks
+# DOVETAIL_DISABLEFAST affect C compilation so need complete clean.
+make clean
 DOVETAIL_TAILCALLS=false DOVETAIL_DISABLEFAST=1 make benchmarks
 test_all no-fast
 
-make clean-benchmarks
+make clean
 DOVETAIL_TAILCALLS=false make benchmarks
 test_all all
 
@@ -75,7 +79,14 @@ others quicksort 30000000
 others rwlock 1
 others barrier 1
 others locks 1
-#others blackscholes 10000
+
+for (( i = 1; i <= $THREADS ; i++ ))
+do
+  taskset -c 0-$((i - 1)) ./benchmark $FLAGS blackscholes c $i 5000 bin/blackscholes_base $i benchmarks/bs_input
+  taskset -c 0-$((i - 1)) ./benchmark $FLAGS blackscholes java $i 5000 java -cp bin/ blackscholes $i benchmarks/bs_input
+  ./benchmark $FLAGS blackscholes wool $i 5000 bin/blackscholes_wool -p $i benchmarks/bs_input
+done
+
 
 # Very slow so do these last...
 others locks 16
