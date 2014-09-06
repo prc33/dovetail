@@ -1,0 +1,13 @@
+#!/bin/sh -x
+
+make clean-benchmarks
+DOVETAIL_OPTLEVEL=1 make bin/fib
+valgrind --tool=callgrind --dump-instr=yes --callgrind-out-file=breakdown-fib-slow.out bin/fib 1 30
+
+make clean-benchmarks
+make bin/fib
+valgrind --tool=callgrind --dump-instr=yes --callgrind-out-file=breakdown-fib-fast.out bin/fib 1 30
+
+#  total=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 TOTALS | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
+#  mem=$(callgrind_annotate --inclusive=yes ${callgrindout} | grep -m 1 GC_malloc | awk 'BEGIN{OFMT="%.0f";VAL=0}{gsub(",", "", $1); VAL+=$1}END{print VAL}')
+#  sqlite3 ${database} "insert into mm (suite, variant, benchmark, threads, n, gc, total) values('${suite}', '${variant}', '${command_to_run}', 1, ${argument}, ${mem}, ${total});"
