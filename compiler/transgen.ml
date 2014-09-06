@@ -190,12 +190,14 @@ let generate_block f instance block state =
         s
     (* Message Emissions *)
     | Instruction.Emit(v,ps) ->
-        let channel = value (void_type) v s in (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
+        let channel = value void_type v s in (* TODO: void_type is a hack here since we know the value must be a Var or Constant... *)
         let func    = Llvm.build_extractvalue channel 0 "" bb in (* TODO: names for these temporaries? *)
         let inst    = Llvm.build_extractvalue channel 1 "" bb in
         let msg     = Llvm.undef (Typegen.structure s.types (List.map ps (fun (t,v) -> t))) |>
                       foldi (fun (i,(t,v)) msg -> Llvm.build_insertvalue msg (value (s.types t) v s) i "" bb) ps in
-        Function.fast_call func [| worker; inst; msg |] "" true bb |> ignore;
+        (* TODO: should assert that this is type safe. I.e. msg might be anon struct when func expects named *)
+        let cast_func = Llvm.build_bitcast func (Llvm.pointer_type (Llvm.function_type void_type [| Llvm.type_of worker; Llvm.type_of inst; Llvm.type_of msg |])) "" bb in
+        Function.fast_call cast_func [| worker; inst; msg |] "" true bb |> ignore;
         s
   ) block.instrs in
 

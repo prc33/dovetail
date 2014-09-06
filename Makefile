@@ -1,4 +1,4 @@
-BENCHMARKS = fib quicksort nqueens locks barrier rwlock blackscholes
+BENCHMARKS = fib quicksort nqueens locks barrier rwlock blackscholes queue
 
 RUNTIME	= work.c atomics.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fast_mem.c util.ll arrays.c util_c.c benchmarks.c
 BIN	= bin
@@ -16,6 +16,7 @@ ASM	= gcc
 LIBS	= $(BOEHM)/lib/libgc.a -lpthread -lm
 JCAMC	= $(BIN)/jcamc
 CC	= gcc -std=c99 -O3 -Wall
+CPP	= g++ -std=c++11 -O3 -Wall -pthread
 WOOLC	= gcc -std=gnu99 -O3 -Wall -DWOOL -I $(WOOL) $(WOOL)/wool.o
 JAVAC	= javac -d $(BIN)
 
@@ -81,6 +82,9 @@ $(BIN)/%: $(BUILD)/benchmarks/%.s | $(BIN)
 
 $(BIN)/%_base: benchmarks/%.c | $(BIN)
 	$(CC) $< $(LIBS) -o $@
+
+$(BIN)/%_base: benchmarks/%.cpp | $(BIN)
+	$(CPP) $< $(LIBS) -o $@
 
 $(BIN)/%_wool: benchmarks/%.c | $(BIN)
 	$(WOOLC) $< $(LIBS) -o $@

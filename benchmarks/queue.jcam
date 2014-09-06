@@ -1,0 +1,163 @@
+%recurse = type (i8, (%recurse))
+
+definition {
+  channel @create_queue(((i8, (i8)),((i8))))   functional
+  channel %put(i8, (i8))
+  channel %take((i8))
+  channel %head(i8, (%recurse))                cell
+  channel %tail((i8, (%recurse)))              cell
+
+  transition @create_queue(((i8, (i8)), ((i8))) %k) {
+    emit %tail((i8, (%recurse)) %head)
+    emit %k((i8, (i8)) %put, ((i8)) %take)
+    finish
+  }
+
+  transition %take((i8) %k) %head(i8 %value, (%recurse) %next) {
+    emit %k(i8 %value)
+    emit %next((i8, (%recurse)) %head)
+    finish
+  }
+
+  transition %put(i8 %value, (i8) %k) %tail((i8, (%recurse)) %set) {
+    construct @node(i8 %value, (i8, (%recurse)) %set, ((i8, (%recurse))) %tail)
+    emit %k(i8 0)
+    finish
+  }
+}
+
+definition {
+  channel @node(i8, (i8, (%recurse)), ((i8, (%recurse)))) functional
+  channel %get(%recurse)                                  cell
+  channel %set(i8, (%recurse))                            cell
+
+  transition @node(i8 %v, (i8, (%recurse)) %m, ((i8, (%recurse))) %n) {
+    emit %m(i8 %v, (%recurse) %get)
+    emit %n((i8, (%recurse)) %set)
+    finish
+  }
+
+  transition %get(%recurse %k) %set(i8 %v, (%recurse) %next) {
+    emit %k(i8 %v, (%recurse) %next)
+    finish
+  }
+}
+
+definition {
+  channel @create_async_barrier(i32, (i32), ((i8))) functional
+  channel %state(i32, (i32))                        mem
+  channel %inc(i8)
+
+  transition @create_async_barrier(i32 %count, (i32) %cont, ((i8)) %k) {
+    emit %state(i32 %count, (i32) %cont)
+    emit %k((i8) %inc)
+    finish
+  }
+
+  transition %state(i32 %count, (i32) %cont) %inc(i8 %dummy) {
+    %count_m1 = add i32 %count, -1
+    %done = cmp eq i32 %count_m1, 0
+    br %done, label %end, label %next
+  
+  next:
+    emit %state(i32 %count_m1, (i32) %cont)
+    finish
+
+  end:
+    emit %cont(i32 0)
+    finish
+  }
+}
+
+definition {
+  channel @create_putter((i8, (i8)), (i8))   functional
+  channel %values(i32, (i8, (i8)), (i8))    mem
+  channel %step(i8)                         cell
+
+  transition @create_putter((i8, (i8)) %put, (i8) %k) {
+    emit %values(i32 1000000, (i8, (i8)) %put, (i8) %k)
+    emit %step(i8 0)
+    finish
+  }
+
+  transition %values(i32 %count, (i8, (i8)) %put, (i8) %k) %step(i8 %dummy) {
+    %count_m1 = add i32 %count, -1
+    emit %values(i32 %count_m1, (i8, (i8)) %put, (i8) %k)
+
+    %done = cmp eq i32 %count, 0
+    br %done, label %end, label %next
+
+  next:
+    emit %put(i8 100, (i8) %step)
+    finish
+
+  end:
+    emit %k(i8 0)
+    finish
+  }
+}
+
+definition {
+  channel @create_taker(((i8)), (i8))   functional
+  channel %values(i32, ((i8)), (i8))    mem
+  channel %step(i8)                         cell
+
+  transition @create_taker(((i8)) %take, (i8) %k) {
+    emit %values(i32 1000000, ((i8)) %take, (i8) %k)
+    emit %step(i8 0)
+    finish
+  }
+
+  transition %values(i32 %count, ((i8)) %take, (i8) %k) %step(i8 %dummy) {
+    %count_m1 = add i32 %count, -1
+    emit %values(i32 %count_m1, ((i8)) %take, (i8) %k)
+
+    %done = cmp eq i32 %count, 0
+    br %done, label %end, label %next
+
+  next:
+    emit %take((i8) %step)
+    finish
+
+  end:
+    emit %k(i8 0)
+    finish
+  }
+}
+
+definition {
+  channel @main(i32, (i32))                          functional
+  channel %barrier((i8))                             cell
+  channel %queue((i8, (i8)), ((i8)))                 cell
+  channel %to_create(i32, (i8, (i8)), ((i8)), (i8))  functional
+  channel %tmp(i32)                                  cell
+
+  transition @main(i32 %n, (i32) %k) {
+    emit %tmp(i32 %n)
+    %n2 = add i32 %n, %n
+    construct @create_async_barrier(i32 %n2, (i32) %k, ((i8)) %barrier)
+    construct @create_queue(((i8, (i8)), ((i8))) %queue)
+    finish
+  }
+
+  transition %tmp(i32 %n) %barrier((i8) %sync) %queue((i8, (i8)) %put, ((i8)) %take) {
+    emit %to_create(i32 %n, (i8, (i8)) %put, ((i8)) %take, (i8) %sync)
+    finish
+  }
+
+  transition %to_create(i32 %n, (i8, (i8)) %put, ((i8)) %take, (i8) %sync) {
+    %done = cmp eq i32 %n, 0
+    br %done, label %end, label %next
+
+  next:
+    %n_m1 = add i32 %n, -1
+    construct @create_putter((i8, (i8)) %put, (i8) %sync)
+    construct @create_taker(((i8)) %take, (i8) %sync)
+    emit %to_create(i32 %n_m1, (i8, (i8)) %put, ((i8)) %take, (i8) %sync)
+    finish
+
+  end:
+    finish
+  }
+}
+
