@@ -46,6 +46,8 @@ test_all() {
   jcam rwlock $1 16
   jcam barrier $1 1
   jcam barrier $1 16
+  jcam queue $1 1
+  jcam queue $1 16
   jcam blackscholes $1 5000
 }
 
@@ -79,6 +81,8 @@ others quicksort 30000000
 others rwlock 1
 others barrier 1
 others locks 1
+others queue 1
+others queue 16
 
 for (( i = 1; i <= $THREADS ; i++ ))
 do
