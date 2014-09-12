@@ -15,6 +15,7 @@ LLC	= llc -O3
 ASM	= gcc
 LIBS	= $(BOEHM)/lib/libgc.a -lpthread -lm
 JCAMC	= $(BIN)/jcamc
+CFA	= $(BIN)/analyse
 CC	= gcc -std=c99 -O3 -Wall
 CPP	= g++ -std=c++11 -O3 -Wall -pthread
 WOOLC	= gcc -std=gnu99 -O3 -Wall -DWOOL -I $(WOOL) $(WOOL)/wool.o
@@ -55,6 +56,10 @@ $(BUILD):
 $(JCAMC): compiler/*.ml | $(BUILD) $(BIN)
 	ocamlbuild -I compiler -use-ocamlfind dovetail.native -package llvm -build-dir $(BUILD)
 	ln -s -f ../$(BUILD)/compiler/dovetail.native $(JCAMC)
+
+$(CFA): compiler/*.ml | $(BUILD) $(BIN)
+	ocamlbuild -I compiler -use-ocamlfind analyse.native -package llvm -build-dir $(BUILD)
+	ln -s -f ../$(BUILD)/compiler/analyse.native $(CFA)
 
 $(BUILD)/runtime/%.ll: runtime/%.c | $(BUILD)
 	$(CLANG) $< -o $@
