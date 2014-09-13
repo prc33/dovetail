@@ -7,14 +7,6 @@ open Jcam
 open Constraints
 open Core.Std
 
-type env = int String.Map.t
-
-(* transition_id, block label, env *)
-type block_visit = (string option) * env
-type transition_visit = int * env
-
-let env_eq (k1,e1) (k2,e2) = (k1 = k2) && (Map.equal (=) e1 e2)
-
 let no_repeat f =
   let visited = Stack.create () in
   let rec real_f x =
@@ -120,6 +112,8 @@ let generate def k =
           end
         );
         let result = (Stack.to_list new_constraints, args) in
+        (* TODO: This needs to be done before calling do_transition to prevent cycles.
+           Therefore emit constraints should have the Stack rather than its to_list *)
         Hashtbl.set channels c.name result;
         result
     end
