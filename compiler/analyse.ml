@@ -7,18 +7,6 @@
 
 open Core.Std
 
-let string_with_state state str = match state with
-  | Constraints.F -> "F(" ^ str ^ ")"
-  | Constraints.B -> "B(" ^ str ^ ")"
-
-let rec string_of_constraint c = match c with
-  | Constraints.Succ (i, s, j) -> (string_of_int i) ^ " >= " ^ (string_with_state s (string_of_int j))
-  | Constraints.In (i, s, v) -> (string_of_int i) ^ " >= " ^ (string_with_state s (string_of_value v))
-  | Constraints.Emit (is, j, _) -> (List.to_string string_of_int is) ^ " -> " ^ (string_of_int j)
-
-and string_of_value v = match v with
-  | Constraints.Wildcard -> "*"
-  | Constraints.Closure (f, cs, is) -> "{" ^ (List.to_string string_of_constraint cs) ^ "|" ^ f ^ ": " ^ (List.to_string string_of_int is)
 
 let main f k = 
   let channel = open_in f in
@@ -27,9 +15,20 @@ let main f k =
                 raise e
   in
     List.iter parsed.definitions (fun d ->
+      print_endline "==================================================================";
       let (gamma, cs) = Cfagen.generate d k in
       List.iter (Map.to_alist gamma) (fun (c,v) -> print_string ("Channel " ^ c ^ " -> "); print_string (List.to_string string_of_int v); print_newline() );
-      List.iter cs (fun c -> print_endline (string_of_constraint c))
+      List.iter cs (fun c -> print_endline (Constraints.string_of_constraint c));
+      let solution = Cfasolve.solve gamma cs k in
+      Hashtbl.iter solution ~f:(fun ~key ~data ->
+        print_string (string_of_int key);
+        print_string " = ";
+        Map.iter data ~f:(fun ~key ~data ->
+          print_string (Constraints.string_with_state data (Constraints.string_of_value key));
+          print_string ", "
+        );
+        print_endline ""
+      )
     )
 
 let () = match Sys.argv with

@@ -18,18 +18,20 @@ definition closed {
 }
 
 definition closed {
-  channel @fib(i32, (i32))  functional
-  channel %a(i32)           cell
-  channel %b(i32)           cell
-  channel %temp((i32))      mem
+  channel @fib(i32, (i32))   functional
+  channel %a(i32)            cell
+  channel %b(i32)            cell
+  channel %temp((i32))       mem
 
-  channel %A_fib(i32)       functional
-  channel %A_a(i32)         cell
-  channel %A_b(i32)         cell
+  channel %A_fib(i32, (i32)) functional
+  channel %A_a(i32)          cell
+  channel %A_b(i32)          cell
+  channel %A_temp((i32))     mem
 
-  channel %B_fib(i32)       functional
-  channel %B_a(i32)         cell
-  channel %B_b(i32)         cell
+  channel %B_fib(i32,(i32))  functional
+  channel %B_a(i32)          cell
+  channel %B_b(i32)          cell
+  channel %B_temp((i32))     mem
 
   transition @fib(i32 %x, (i32) %k) {
     %base = cmp ult i32 %x, 2
@@ -43,10 +45,10 @@ definition closed {
     emit %temp((i32) %k)
 
     %x1 = add i32 %x, -1
-    emit %A_fib(i32 %x1)
+    emit %A_fib(i32 %x1, (i32) %a)
 
     %x2 = add i32 %x, -2
-    emit %B_fib(i32 %x2)
+    emit %B_fib(i32 %x2, (i32) %b)
 
     finish
   }
@@ -57,7 +59,7 @@ definition closed {
     finish
   }
 
-  transition %A_fib(i32 %x) {
+  transition %A_fib(i32 %x, (i32) %k) {
     %base = cmp ult i32 %x, 2
     br %base, label %base_case, label %recurse
   
@@ -66,6 +68,8 @@ definition closed {
     finish
 
   recurse:
+    emit %A_temp((i32) %k)
+
     %x1 = add i32 %x, -1
     construct @fib(i32 %x1, (i32) %A_a)
 
@@ -75,13 +79,13 @@ definition closed {
     finish
   }
 
-  transition %A_a(i32 %x) %A_b(i32 %y) {
+  transition %A_a(i32 %x) %A_b(i32 %y) %A_temp((i32) %k) {
     %sum = add i32 %x, %y
-    emit %a(i32 %sum)
+    emit %k(i32 %sum)
     finish
   }
 
-  transition @B_fib(i32 %x) {
+  transition @B_fib(i32 %x, (i32) %k) {
     %base = cmp ult i32 %x, 2
     br %base, label %base_case, label %recurse
   
@@ -90,6 +94,8 @@ definition closed {
     finish
 
   recurse:
+    emit %B_temp((i32) %k)
+
     %x1 = add i32 %x, -1
     construct @fib(i32 %x1, (i32) %B_a)
 
@@ -99,9 +105,9 @@ definition closed {
     finish
   }
 
-  transition %B_a(i32 %x) %B_b(i32 %y) {
+  transition %B_a(i32 %x) %B_b(i32 %y) %B_temp((i32) %k) {
     %sum = add i32 %x, %y
-    emit %b(i32 %sum)
+    emit %k(i32 %sum)
     finish
   }
 }

@@ -34,36 +34,53 @@ and value =
   | Wildcard  
   | Closure of string * (t list) * (int list)
 
+(* String conversion *)
+let string_with_state state str = match state with
+  | F -> "F(" ^ str ^ ")"
+  | B -> "B(" ^ str ^ ")"
+
+let rec string_of_constraint c = match c with
+  | Succ (i, s, j) -> (string_of_int i) ^ " >= " ^ (string_with_state s (string_of_int j))
+  | In (i, s, v) -> (string_of_int i) ^ " >= " ^ (string_with_state s (string_of_value v))
+  | Emit (is, j, _) -> (List.to_string string_of_int is) ^ " -> " ^ (string_of_int j)
+
+and string_of_value v = match v with
+  | Wildcard -> "*"
+  | Closure (f, cs, is) -> "{" ^ (List.to_string string_of_constraint cs) ^ "|" ^ f ^ ": " ^ (List.to_string string_of_int is)
+
 (* Solutions *)
 type solution = (int, (value, state) Map.Poly.t) Hashtbl.Poly.t
 
 (* Operations on value sets *)
+let get ht i = match Hashtbl.find ht i with
+  | Some x -> x
+  | None   -> Map.Poly.empty
+
 let change ht i f =
-  let old = match Hashtbl.find ht i with
-    | Some x -> x
-    | None   -> Map.Poly.empty
-  in
+  let old = get ht i in
   let neu = f old in
   Hashtbl.set ht i neu;
   not (Map.equal (=) old neu)
 
-let add (sol,i) state value = change sol i (fun x ->
+let add sol i state value = change sol i (fun x ->
   Map.change x value (function
     | Some(F) -> Some(F)
     | _       -> Some(state)
   )
 )
 
-let add_multi (sol,i) sopt j = change sol i (fun x ->
-  Map.merge x (Hashtbl.find_exn sol j) (fun ~key -> function
+let add_multi sol i sopt j = change sol i (fun x ->
+  Map.merge x (get sol j) (fun ~key -> function
     | `Both(F, _) -> Some(F)
-    | `Both(B, s) -> match sopt with
+    | `Both(B, s) -> begin match sopt with
                      | Some state -> Some(state)
                      | None       -> Some(s)
+                     end
     | `Left(s)    -> Some(s)
-    | `Right(s)   -> match sopt with
+    | `Right(s)   -> begin match sopt with
                      | Some state -> Some(state)
                      | None       -> Some(s)
+                     end
   )
 )
 
@@ -84,5 +101,5 @@ let fresh_substitution exclude =
 let map f e k cs = List.map cs ~f:(function
   | Succ(i, s, j)  -> Succ(f i, s, f j)
   | In(i, s, v)    -> In(f i, s, v)
-  | Emit(is, j, h) -> Emit(List.map is ~f, f j, if (List.length h) >= k then h else h @ [e])
+  | Emit(is, j, h) -> Emit(List.map is ~f, f j, if (List.length h) >= k then h else h @ e)
 )
