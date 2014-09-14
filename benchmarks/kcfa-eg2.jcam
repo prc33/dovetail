@@ -1,0 +1,27 @@
+definition {
+  channel @start()
+  channel %a((i32), ((i32)))
+  channel %b((i32), ((i32)))
+  channel %i(i32)
+  channel %j(i32)
+  channel %k(i32)
+  channel %l(i32)
+  channel %p((i32))
+  channel %q((i32))
+  channel %r((i32))
+  channel %s((i32))
+
+  transition @start() {
+    emit %a((i32) %i, ((i32)) %p)
+    emit %a((i32) %j, ((i32)) %q)
+    emit %b((i32) %k, ((i32)) %r)
+    emit %b((i32) %l, ((i32)) %s)
+    finish
+  }
+  
+  transition %a(i32 %x, (i32) %m) %b(i32 %y, (i32) %n) {
+    emit %m(i32 %y)
+    emit %n(i32 %x)
+    finish
+  }
+}
