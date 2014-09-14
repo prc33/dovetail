@@ -28,10 +28,14 @@ let generate def k =
   (* Create 0-CFA variables for all channels, and initial constraints for    *)
   (* constructors.                                                           *)
   let gamma = String.Map.of_alist_exn (List.map def.channels (fun c ->
-    (c.name, List.map c.args (fun _ ->
+    (c.name, List.map c.args (fun t ->
       let v = fresh_var () in
       begin if c.constructor then
-        Stack.push toplevel (In (v, F, Wildcard(Outer)))
+        Stack.push toplevel (In (v, F, Wildcard(
+          match t with
+          | Type.Channel(_) -> Outer
+          | _ -> Prim
+        )))
       end;
       v
     ))
