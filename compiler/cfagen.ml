@@ -10,11 +10,12 @@ open Core.Std
 let no_repeat f =
   let visited = Stack.create () in
   let rec real_f x =
-    if Stack.mem visited x then
+    if Stack.mem visited x then begin
       ()
-    else
+    end else begin
       Stack.push visited x;
       f real_f x
+    end
   in real_f
 
 (* Jcam.definition -> Constraints.t list *)
@@ -30,7 +31,7 @@ let generate def k =
     (c.name, List.map c.args (fun _ ->
       let v = fresh_var () in
       begin if c.constructor then
-        Stack.push toplevel (In (v, F, Wildcard))
+        Stack.push toplevel (In (v, F, Wildcard(Outer)))
       end;
       v
     ))
@@ -60,23 +61,26 @@ let generate def k =
                                       var
                           | None -> get_var v
                           end
+        | Constant(_)  -> let var = fresh_var () in
+                          Stack.push constraints (In(var, F, Wildcard(Outer)));
+                          var
         | _            -> let var = fresh_var () in
-                          Stack.push constraints (In(var, F, Wildcard));
+                          Stack.push constraints (In(var, F, Wildcard(Prim)));
                           var
       in
       (* Phi Nodes *)
       List.iter block.phis (fun (v,t,incoming) ->
           let var = get_var v in
-          List.iter incoming (fun (income,_) -> Stack.push constraints (Succ(var, F, value income))); (* TODO TODO TODO this shouldn't do 'F' *)
+          List.iter incoming (fun (income,_) -> Stack.push constraints (Succ(var, None, value income)));
       );
 
       (* Other Instructions *)
       List.iteri block.instrs (fun cnt i -> match i with
-        | Instruction.Assign(v,_) -> let var = get_var v in Stack.push constraints (In(var, F, Wildcard))
-        | Instruction.Store(_,_,_,_) -> failwith "STORE not supported"
+        | Instruction.Assign(v,_) -> let var = get_var v in Stack.push constraints (In(var, F, Wildcard(Prim)))
+        | Instruction.Store(_,_,_,_) -> (); (* This assumes that arrays are all of primitive values (just as above assumes that load will return Prim *)
         | Instruction.Construct(c,ps) -> 
             let var = fresh_var () in
-            Stack.push constraints (In(var, F, Wildcard));
+            Stack.push constraints (In(var, F, Wildcard(Inner)));
             Stack.push constraints (Emit(List.map ps (fun (t,v) -> value v), var, [(t.tid, l, cnt)]))
         | Instruction.Emit(v,ps) ->
             Stack.push constraints (Emit(List.map ps (fun (t,v) -> value v), value v, [(t.tid, l, cnt)]))
@@ -100,6 +104,8 @@ let generate def k =
     | None -> begin
         let new_constraints = Stack.create () in
         let args = List.map c.args (fun _ -> fresh_var ()) in
+        let result = (new_constraints, args) in
+        Hashtbl.set channels c.name result;
         List.iter def.transitions (fun t ->
           if List.mem (List.map t.pattern (fun (x,_) -> x)) c.name then begin
             do_transition new_constraints t (
@@ -111,10 +117,6 @@ let generate def k =
             ()
           end
         );
-        let result = (Stack.to_list new_constraints, args) in
-        (* TODO: This needs to be done before calling do_transition to prevent cycles.
-           Therefore emit constraints should have the Stack rather than its to_list *)
-        Hashtbl.set channels c.name result;
         result
     end
   end in

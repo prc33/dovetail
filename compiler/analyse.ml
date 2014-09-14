@@ -18,17 +18,20 @@ let main f k =
       print_endline "==================================================================";
       let (gamma, cs) = Cfagen.generate d k in
       List.iter (Map.to_alist gamma) (fun (c,v) -> print_string ("Channel " ^ c ^ " -> "); print_string (List.to_string string_of_int v); print_newline() );
-      List.iter cs (fun c -> print_endline (Constraints.string_of_constraint c));
-      let solution = Cfasolve.solve gamma cs k in
+      List.iter cs (fun c -> print_endline (Constraints.to_string c));
+      print_endline "~~~~~";
+      let (solution,inner,outer) = Cfasolve.solve gamma cs k in
       Hashtbl.iter solution ~f:(fun ~key ~data ->
         print_string (string_of_int key);
         print_string " = ";
         Map.iter data ~f:(fun ~key ~data ->
-          print_string (Constraints.string_with_state data (Constraints.string_of_value key));
+          print_string (Constraints.string_with_state data (Constraints.string_of_value (Set.Poly.empty) key));
           print_string ", "
         );
         print_endline ""
-      )
+      );
+      print_endline ("Inner: " ^ (List.to_string (fun x -> x) (Set.to_list inner)));
+      print_endline ("Outer: " ^ (List.to_string (fun x -> x) (Set.to_list outer)))
     )
 
 let () = match Sys.argv with

@@ -23,30 +23,36 @@ type history = (int * (string option) * int) list
 (* Background or foreground *)
 type state = B | F
 
+type side = Inner | Outer | Prim
+
 (* Constraints *)
 type t =
-  | Succ of int * state * int                              (* a_i >= F/B(a_j) *)
-  | In of int * state * value                                (* a_i >= F/B(c) *)
+  | Succ of int * (state option) * int                     (* a_i >= F/B(a_j) *)
+  | In   of int * state * value                              (* a_i >= F/B(c) *)
   | Emit of (int list) * int * history                       (* [a_i] h-> a_j *)
 
 (* Abstract values *)
 and value =
-  | Wildcard  
-  | Closure of string * (t list) * (int list)
+  | Wildcard of side
+  | Closure  of string * (t Stack.t) * (int list)
 
 (* String conversion *)
 let string_with_state state str = match state with
   | F -> "F(" ^ str ^ ")"
   | B -> "B(" ^ str ^ ")"
 
-let rec string_of_constraint c = match c with
-  | Succ (i, s, j) -> (string_of_int i) ^ " >= " ^ (string_with_state s (string_of_int j))
-  | In (i, s, v) -> (string_of_int i) ^ " >= " ^ (string_with_state s (string_of_value v))
+let rec string_of_constraint seen c = match c with
+  | Succ (i, s, j) -> (string_of_int i) ^ " >= " ^ (match s with Some s -> string_with_state s (string_of_int j) | None -> string_of_int j)
+  | In (i, s, v) -> (string_of_int i) ^ " >= " ^ (string_with_state s (string_of_value seen v))
   | Emit (is, j, _) -> (List.to_string string_of_int is) ^ " -> " ^ (string_of_int j)
 
-and string_of_value v = match v with
-  | Wildcard -> "*"
-  | Closure (f, cs, is) -> "{" ^ (List.to_string string_of_constraint cs) ^ "|" ^ f ^ ": " ^ (List.to_string string_of_int is)
+and string_of_value seen v = match v with
+  | Wildcard(Inner) -> "*_in"
+  | Wildcard(Outer) -> "*_out"
+  | Wildcard(Prim)  -> "PRIM"
+  | Closure (f, cs, is) -> if Set.mem seen cs then "{" ^ f ^ "}" else (List.to_string (string_of_constraint (Set.add seen cs)) (Stack.to_list cs)) ^ "|" ^ f ^ ": " ^ (List.to_string string_of_int is)
+
+let to_string = string_of_constraint Set.Poly.empty
 
 (* Solutions *)
 type solution = (int, (value, state) Map.Poly.t) Hashtbl.Poly.t
