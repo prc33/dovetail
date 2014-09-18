@@ -35,13 +35,13 @@ public:
 queue<int> data;
 
 void putter(){
-  for(int i = 0; i < 1000000; i++) {
+  for(int i = 0; i < 1000; i++) {
     data.push(i);
   }
 }
 
 void taker() {
-  for(int i = 0; i < 1000000; i++) {
+  for(int i = 0; i < 1000; i++) {
     data.pop();
   }
 }

@@ -13,11 +13,11 @@ final public class queue implements Runnable {
   final public void run() {
     try {
       if(!taker) {
-        for(int i = 0; i < 1000000; i++) {
+        for(int i = 0; i < 1000; i++) {
           queue.put(this);
         }
       } else {
-        for(int i = 0; i < 1000000; i++) {
+        for(int i = 0; i < 1000; i++) {
           queue.take();
         }
       }

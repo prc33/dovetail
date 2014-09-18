@@ -327,7 +327,7 @@ int main(int argc, char* argv[]) {
   
   // Allocate workers to cacheline aligned memory. The size of worker_t should
   // be 2 cachelines.
-  workers = (worker_t *) aligned_alloc(CACHE_LINE, worker_count * sizeof(worker_t));
+  workers = (worker_t *) memalign(CACHE_LINE, worker_count * sizeof(worker_t));
 
   // Initialise worker queues to be empty.
   for(int i = 0; i < worker_count; i++) {
@@ -336,7 +336,7 @@ int main(int argc, char* argv[]) {
       .bottom = 0,
       .cached_top = 0,
       .top = 0,
-      .fast_threshold = worker_count * FAST_FACTOR,
+      .fast_threshold = 2,//worker_count * FAST_FACTOR,
       .counters = { .match_pushes = 0, .match_pops = 0, .match_steals = 0 },
       .array = (match_t *) GC_MALLOC_UNCOLLECTABLE(WORK_LIMIT * sizeof(match_t))
     };
