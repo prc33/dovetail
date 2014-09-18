@@ -264,12 +264,15 @@ let compile_program p =
       (* Normal Channels *)
       Some this_chan ->
         let retry_false = Llvm.const_int (Llvm.i8_type context) 0 in
+        let backoff_init = Llvm.const_int (Llvm.i32_type context) 0 in
 
         (* Enqueuing of new message *)
         let new_msg = this_chan.Runtime.slow_enqueue value ("msg." ^ c.name) bb in
 
         (* Allocate retry flag *)
         let retry = Llvm.build_alloca (Llvm.i8_type context) "retry" bb in
+        let backoff = Llvm.build_alloca (Llvm.i32_type context) "backoff" bb in
+        Llvm.build_store backoff_init backoff bb |> ignore;
 
         (* Create exit block *)
         let exit = Llvm.append_block context "exit" f in
@@ -294,6 +297,7 @@ let compile_program p =
 
         (* Initialise retry flag to 0 *)
         let bb = Llvm.builder_at_end context body in
+        Llvm.build_call Runtime.backoff [| backoff |] "" bb |> ignore;
         Llvm.build_store retry_false retry bb |> ignore;
 
         (* Consider every transition matching on c. Builder is passed through in fold manner *)

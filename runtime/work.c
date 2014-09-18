@@ -32,6 +32,13 @@
 #include "gc.h"
 
 /*
+ * Maximum backoff for matching algorithm in usec.
+ */
+#ifndef MAX_BACKOFF
+  #define MAX_BACKOFF 1000
+#endif
+
+/*
  * Threshold factor for entering fast mode.
  */
 #ifndef FAST_FACTOR
@@ -218,7 +225,7 @@ __attribute__((always_inline)) match_t *match_steal(worker_t *self, match_t *des
 }
 
 /*
- * 
+ * Return true when the worker should transition to fast-mode.
  */
 __attribute__((always_inline)) bool dovetail_go_fast(worker_t *self) {
 #if DOVETAIL_DISABLEFAST
@@ -226,6 +233,23 @@ __attribute__((always_inline)) bool dovetail_go_fast(worker_t *self) {
 #else
   return (self->bottom - self->top) > self->fast_threshold;
 #endif
+}
+
+/*
+ * Exponential backoff for matching algorithm.
+ */
+__attribute__((always_inline)) void dovetail_backoff(int *backoff) {
+  int old = *backoff;
+
+  if(old != 0) {
+    usleep(old);
+  } else {
+    old = 1;
+  }
+
+  if(old < MAX_BACKOFF) {
+    *backoff = old << 1;
+  }
 }
 
 /*
