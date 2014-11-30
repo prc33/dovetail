@@ -58,7 +58,7 @@ let match_push = Function.declare "match_push" (Llvm.function_type void_type [| 
 
 let fast_check = Function.declare "dovetail_go_fast" (Llvm.function_type bool_type [| worker_t |]) (* TODO: rename? *)
 
-let backoff = Function.declare "dovetail_backoff" (Llvm.function_type void_type [| Llvm.pointer_type (Llvm.i32_type context) |])
+let backoff = Function.declare "dovetail_backoff" (Llvm.function_type void_type [| worker_t; Llvm.pointer_type (Llvm.i32_type context) |])
 
 type slow_channel = {
   slow_init        : Llvm.llbuilder -> unit;                                    (* () -> void      *)

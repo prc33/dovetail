@@ -4,8 +4,9 @@ RUNTIME	= work.c atomics.ll slow_queue.c slow_cell.c fast_queue.c fast_cell.c fa
 BIN	= bin
 BUILD	= build
 BOEHM	= ~/boehm
-WOOL	= ~/Desktop/wool-0.1.5alpha
+WOOL	= ~/wool-0.1.5alpha
 
+# This is just the default
 DOVETAIL_DISABLEFAST=0
 
 CLANG	= clang -g -S -I $(BOEHM)/include/ -O0 -emit-llvm -DDOVETAIL_DISABLEFAST=$(DOVETAIL_DISABLEFAST)
@@ -17,7 +18,7 @@ LIBS	= $(BOEHM)/lib/libgc.a -lpthread -lm
 JCAMC	= $(BIN)/jcamc
 CFA	= $(BIN)/analyse
 CC	= gcc -std=c99 -O3 -Wall
-CPP	= g++ -std=c++11 -O3 -Wall -pthread
+CPP	= g++ -std=c++0x -O3 -Wall -pthread
 WOOLC	= gcc -std=gnu99 -O3 -Wall -DWOOL -I $(WOOL) $(WOOL)/wool.o
 JAVAC	= javac -d $(BIN)
 
@@ -25,7 +26,7 @@ RUNTIME_LLVM = $(addprefix runtime/,$(filter %.ll,$(RUNTIME)))
 RUNTIME_C = $(filter %.c,$(RUNTIME))
 RUNTIME_CO = $(addprefix $(BUILD)/runtime/,$(RUNTIME_C:.c=.ll))
 
-BM_ALL  = $(BENCHMARKS) $(addsuffix _base,$(BENCHMARKS)) $(addsuffix _wool,$(BENCHMARKS)) $(addsuffix .class,$(BENCHMARKS)) fib_inline
+BM_ALL  = $(BENCHMARKS) $(addsuffix _base,$(BENCHMARKS)) $(addsuffix _wool,$(BENCHMARKS)) $(addsuffix .class,$(BENCHMARKS)) fib_inline fib_inline2
 BM_EXEC = $(addprefix $(BIN)/,$(BM_ALL))
 
 all: benchmarks runtime compiler
@@ -93,6 +94,9 @@ $(BIN)/%_base: benchmarks/%.cpp | $(BIN)
 
 $(BIN)/%_wool: benchmarks/%.c | $(BIN)
 	$(WOOLC) $< $(LIBS) -o $@
+
+$(BIN)/%_wool: benchmarks/%.cpp | $(BIN)
+	touch $@
 
 $(BIN)/%.class: benchmarks/%.java | $(BIN)
 	$(JAVAC) $<

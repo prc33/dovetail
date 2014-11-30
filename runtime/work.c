@@ -35,7 +35,7 @@
  * Maximum backoff for matching algorithm in usec.
  */
 #ifndef MAX_BACKOFF
-  #define MAX_BACKOFF 1000
+  #define MAX_BACKOFF 100000
 #endif
 
 /*
@@ -238,18 +238,20 @@ __attribute__((always_inline)) bool dovetail_go_fast(worker_t *self) {
 /*
  * Exponential backoff for matching algorithm.
  */
-__attribute__((always_inline)) void dovetail_backoff(int *backoff) {
-  int old = *backoff;
+__attribute__((always_inline)) void dovetail_backoff(worker_t *self, int *backoff) {
+/*  int old = *backoff;
 
-  if(old != 0) {
-    usleep(old);
-  } else {
-    old = 1;
+  if(old == 0) {
+    // Fast first time through
+    *backoff = 1;
+    return;
+  } else if(old == 1) {
+    old = (self->index + 1) << 3;
+  *backoff = old;
+  } else if(old < MAX_BACKOFF) {
+//    old = old << 1;
   }
-
-  if(old < MAX_BACKOFF) {
-    *backoff = old << 1;
-  }
+  usleep(old);*/
 }
 
 /*
@@ -272,7 +274,7 @@ static void *worker(void *arg) {
   cpu_set_t set;
 
   CPU_ZERO( &set );
-  CPU_SET( self->index, &set );
+  CPU_SET( 2 * self->index, &set );
   sched_setaffinity(0, sizeof(cpu_set_t), &set );
 
   // Try to give all workers the chance to assign themselves to cores before
